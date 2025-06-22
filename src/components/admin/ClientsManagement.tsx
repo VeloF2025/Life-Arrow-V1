@@ -13,8 +13,22 @@ import {
   ExclamationTriangleIcon,
   UserIcon,
   ChevronDownIcon,
-  ChevronUpIcon
+  ChevronUpIcon,
+  ExclamationCircleIcon
 } from '@heroicons/react/24/outline';
+import { 
+  collection, 
+  getDocs, 
+  query, 
+  orderBy, 
+  limit, 
+  doc, 
+  updateDoc, 
+  onSnapshot,
+  Timestamp,
+  FirestoreError 
+} from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
@@ -23,89 +37,54 @@ import LoadingSpinner from '../ui/LoadingSpinner';
 
 interface ClientInfo {
   id: string;
+  // Personal Info
   firstName: string;
   lastName: string;
   email: string;
   mobile: string;
   gender: string;
+  dateOfBirth?: string;
+  idNumber?: string;
+  passport?: string;
   country: string;
+  
+  // Address
   address1: string;
   address2?: string;
   suburb: string;
   cityTown: string;
   province: string;
   postalCode: string;
+  
+  // Contact Details
   preferredMethodOfContact: string;
   maritalStatus: string;
   employmentStatus: string;
+  
+  // Medical Info
   currentMedication?: string;
   chronicConditions?: string;
   currentTreatments?: string;
+  
+  // Service Info
   reasonForTransformation: string;
   whereDidYouHearAboutLifeArrow: string;
   myNearestTreatmentCentre: string;
   referrerName?: string;
+  
+  // Administrative
   status: 'active' | 'inactive' | 'pending-verification' | 'suspended';
-  registrationDate: string;
-  lastActivity?: string;
-  addedTime: string;
+  registrationDate?: Timestamp | Date | null;
+  lastActivity?: Timestamp | Date | null;
+  addedTime: Timestamp | Date;
+  userId?: string;
 }
 
-// Mock data for demonstration
-const mockClients: ClientInfo[] = [
-  {
-    id: '1',
-    firstName: 'John',
-    lastName: 'Doe',
-    email: 'john.doe@example.com',
-    mobile: '+27 82 123 4567',
-    gender: 'Male',
-    country: 'South Africa',
-    address1: '123 Main Street',
-    suburb: 'Sandton',
-    cityTown: 'Johannesburg',
-    province: 'Gauteng',
-    postalCode: '2196',
-    preferredMethodOfContact: 'Email',
-    maritalStatus: 'Single',
-    employmentStatus: 'Employed',
-    reasonForTransformation: 'Weight loss and fitness improvement',
-    whereDidYouHearAboutLifeArrow: 'Social Media',
-    myNearestTreatmentCentre: 'Sandton Centre',
-    status: 'active',
-    registrationDate: '2024-01-15',
-    addedTime: '2024-01-15'
-  },
-  {
-    id: '2',
-    firstName: 'Sarah',
-    lastName: 'Johnson',
-    email: 'sarah.j@example.com',
-    mobile: '+27 83 987 6543',
-    gender: 'Female',
-    country: 'South Africa',
-    address1: '456 Oak Avenue',
-    suburb: 'Rosebank',
-    cityTown: 'Johannesburg',
-    province: 'Gauteng',
-    postalCode: '2196',
-    preferredMethodOfContact: 'Phone',
-    maritalStatus: 'Married',
-    employmentStatus: 'Self-employed',
-    reasonForTransformation: 'Overall wellness and health monitoring',
-    whereDidYouHearAboutLifeArrow: 'Referral',
-    myNearestTreatmentCentre: 'Rosebank Centre',
-    referrerName: 'Dr. Smith',
-    status: 'pending-verification',
-    registrationDate: '2024-01-20',
-    addedTime: '2024-01-20'
-  }
-];
-
 export function ClientsManagement() {
-  const [clients, setClients] = useState<ClientInfo[]>(mockClients);
-  const [filteredClients, setFilteredClients] = useState<ClientInfo[]>(mockClients);
-  const [loading] = useState(false);
+  const [clients, setClients] = useState<ClientInfo[]>([]);
+  const [filteredClients, setFilteredClients] = useState<ClientInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [centreFilter, setCentreFilter] = useState('all');
@@ -113,15 +92,83 @@ export function ClientsManagement() {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<'name' | 'date' | 'status' | 'centre'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [updating, setUpdating] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    // In a real app, this would load from Firebase
-    setClients(mockClients);
+    const unsubscribe = setupRealtimeListener();
+    return () => unsubscribe?.();
   }, []);
 
   useEffect(() => {
     filterAndSortClients();
   }, [clients, searchTerm, statusFilter, centreFilter, sortBy, sortOrder]);
+
+  const setupRealtimeListener = () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const clientsQuery = query(
+        collection(db, 'clients'),
+        orderBy('addedTime', 'desc'),
+        limit(100)
+      );
+
+      const unsubscribe = onSnapshot(
+        clientsQuery,
+        (snapshot) => {
+          const clientsData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as ClientInfo[];
+          
+          setClients(clientsData);
+          setLoading(false);
+          setError(null);
+        },
+        (error: FirestoreError) => {
+          console.error('Error listening to clients:', error);
+          setError(`Failed to load clients: ${error.message}`);
+          setLoading(false);
+          
+          // Fallback to one-time fetch if real-time fails
+          loadClientsOnce();
+        }
+      );
+
+      return unsubscribe;
+    } catch (error) {
+      console.error('Error setting up real-time listener:', error);
+      setError('Failed to connect to database');
+      setLoading(false);
+      return null;
+    }
+  };
+
+  const loadClientsOnce = async () => {
+    try {
+      setLoading(true);
+      const clientsQuery = query(
+        collection(db, 'clients'),
+        orderBy('addedTime', 'desc'),
+        limit(100)
+      );
+      
+      const snapshot = await getDocs(clientsQuery);
+      const clientsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as ClientInfo[];
+      
+      setClients(clientsData);
+      setError(null);
+    } catch (error) {
+      console.error('Error loading clients:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load clients');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filterAndSortClients = () => {
     let filtered = [...clients];
@@ -133,7 +180,8 @@ export function ClientsManagement() {
         client.firstName?.toLowerCase().includes(search) ||
         client.lastName?.toLowerCase().includes(search) ||
         client.email?.toLowerCase().includes(search) ||
-        client.mobile?.includes(search)
+        client.mobile?.includes(search) ||
+        client.idNumber?.includes(search)
       );
     }
 
@@ -155,9 +203,12 @@ export function ClientsManagement() {
         case 'name':
           comparison = `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
           break;
-        case 'date':
-          comparison = new Date(a.addedTime).getTime() - new Date(b.addedTime).getTime();
+        case 'date': {
+          const aDate = getDateFromTimestamp(a.addedTime);
+          const bDate = getDateFromTimestamp(b.addedTime);
+          comparison = aDate.getTime() - bDate.getTime();
           break;
+        }
         case 'status':
           comparison = a.status.localeCompare(b.status);
           break;
@@ -170,6 +221,15 @@ export function ClientsManagement() {
     });
 
     setFilteredClients(filtered);
+  };
+
+  const getDateFromTimestamp = (timestamp: Timestamp | Date | undefined | null): Date => {
+    if (!timestamp) return new Date(0);
+    if (timestamp instanceof Date) return timestamp;
+    if (typeof timestamp === 'object' && 'toDate' in timestamp) {
+      return timestamp.toDate();
+    }
+    return new Date(0);
   };
 
   const getStatusColor = (status: string) => {
@@ -200,8 +260,11 @@ export function ClientsManagement() {
     }
   };
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('en-ZA', {
+  const formatDate = (timestamp: Timestamp | Date | null | undefined) => {
+    const date = getDateFromTimestamp(timestamp);
+    if (date.getTime() === 0) return 'N/A';
+    
+    return date.toLocaleDateString('en-ZA', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
@@ -219,18 +282,42 @@ export function ClientsManagement() {
   };
 
   const updateClientStatus = async (clientId: string, newStatus: 'active' | 'inactive' | 'pending-verification' | 'suspended') => {
-    // In a real app, this would update Firebase
-    setClients(clients.map(client => 
-      client.id === clientId 
-        ? { ...client, status: newStatus }
-        : client
-    ));
+    try {
+      // Add client to updating set
+      setUpdating(prev => new Set(prev).add(clientId));
+      
+      await updateDoc(doc(db, 'clients', clientId), {
+        status: newStatus,
+        lastUpdated: Timestamp.now(),
+        lastActivity: Timestamp.now()
+      });
+      
+      // The real-time listener will update the UI automatically
+      
+    } catch (error) {
+      console.error('Error updating client status:', error);
+      setError(error instanceof Error ? error.message : 'Failed to update client status');
+    } finally {
+      // Remove client from updating set
+      setUpdating(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(clientId);
+        return newSet;
+      });
+    }
+  };
+
+  const retryLoad = () => {
+    setError(null);
+    const unsubscribe = setupRealtimeListener();
+    return () => unsubscribe?.();
   };
 
   const uniqueCentres = [...new Set(clients.map(c => c.myNearestTreatmentCentre).filter(Boolean))];
 
   const ClientCard = ({ client }: { client: ClientInfo }) => {
     const isExpanded = expandedCards.has(client.id);
+    const isUpdating = updating.has(client.id);
     
     return (
       <Card className="hover:shadow-md transition-shadow">
@@ -251,6 +338,11 @@ export function ClientsManagement() {
                     {getStatusIcon(client.status)}
                     <span className="ml-1 capitalize">{client.status.replace('-', ' ')}</span>
                   </span>
+                  {isUpdating && (
+                    <div className="animate-spin">
+                      <LoadingSpinner />
+                    </div>
+                  )}
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600">
@@ -303,6 +395,8 @@ export function ClientsManagement() {
                   <div className="space-y-2 text-sm">
                     <div><span className="font-medium">Gender:</span> {client.gender}</div>
                     <div><span className="font-medium">Country:</span> {client.country}</div>
+                    {client.idNumber && <div><span className="font-medium">ID Number:</span> {client.idNumber}</div>}
+                    {client.passport && <div><span className="font-medium">Passport:</span> {client.passport}</div>}
                     <div><span className="font-medium">Marital Status:</span> {client.maritalStatus}</div>
                     <div><span className="font-medium">Employment:</span> {client.employmentStatus}</div>
                   </div>
@@ -329,11 +423,23 @@ export function ClientsManagement() {
                   </div>
                 </div>
 
-                {/* Transformation Goal */}
+                {/* Medical Info */}
+                {(client.currentMedication || client.chronicConditions || client.currentTreatments) && (
                 <div>
-                  <h4 className="font-medium text-gray-900 mb-3">Transformation Goal</h4>
-                  <p className="text-sm text-gray-600">{client.reasonForTransformation}</p>
+                  <h4 className="font-medium text-gray-900 mb-3">Medical Information</h4>
+                  <div className="space-y-2 text-sm">
+                    {client.currentMedication && <div><span className="font-medium">Current Medication:</span> {client.currentMedication}</div>}
+                    {client.chronicConditions && <div><span className="font-medium">Chronic Conditions:</span> {client.chronicConditions}</div>}
+                    {client.currentTreatments && <div><span className="font-medium">Current Treatments:</span> {client.currentTreatments}</div>}
+                  </div>
                 </div>
+                )}
+              </div>
+
+              {/* Transformation Goal */}
+              <div className="mt-6">
+                <h4 className="font-medium text-gray-900 mb-3">Transformation Goal</h4>
+                <p className="text-sm text-gray-600">{client.reasonForTransformation}</p>
               </div>
 
               {/* Actions */}
@@ -347,14 +453,15 @@ export function ClientsManagement() {
                     { value: 'pending-verification', label: 'Pending Verification' },
                     { value: 'suspended', label: 'Suspended' }
                   ]}
+                  disabled={isUpdating}
                 />
                 
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" disabled={isUpdating}>
                   <PencilIcon className="w-4 h-4 mr-1" />
                   Edit
                 </Button>
                 
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" disabled={isUpdating}>
                   <CalendarDaysIcon className="w-4 h-4 mr-1" />
                   Book Appointment
                 </Button>
@@ -370,7 +477,29 @@ export function ClientsManagement() {
     return (
       <div className="page-container">
         <div className="flex items-center justify-center py-12">
-          <LoadingSpinner />
+          <div className="text-center">
+            <LoadingSpinner />
+            <p className="mt-4 text-gray-600">Loading clients...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="page-container">
+        <div className="flex items-center justify-center py-12">
+          <Card className="max-w-md w-full">
+            <div className="p-6 text-center">
+              <ExclamationCircleIcon className="w-16 h-16 text-red-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Error Loading Clients</h3>
+              <p className="text-gray-600 mb-4">{error}</p>
+              <Button onClick={retryLoad} className="btn-primary">
+                Try Again
+              </Button>
+            </div>
+          </Card>
         </div>
       </div>
     );
@@ -396,7 +525,7 @@ export function ClientsManagement() {
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="md:col-span-2">
               <Input
-                placeholder="Search clients by name, email, phone..."
+                placeholder="Search clients by name, email, phone, or ID..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 leftIcon={<MagnifyingGlassIcon className="w-5 h-5" />}
