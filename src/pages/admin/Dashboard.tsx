@@ -28,6 +28,7 @@ import { elevateCurrentUserToSuperAdmin } from '../../utils/elevateCurrentUser';
 import { ServicesManagement } from '../../components/admin/ServicesManagement';
 import { CentresManagement } from '../../components/admin/CentresManagement';
 import { ClientsManagement } from '../../components/admin/ClientsManagement';
+import { AdminSetup } from '../../components/admin/AdminSetup';
 import AuditPage from './AuditPage';
 // import { StaffManagement } from '../../components/admin/StaffManagement';
 // import { AppointmentsManagement } from '../../components/admin/AppointmentsManagement';
@@ -38,6 +39,7 @@ export function Dashboard() {
   const { profile, loading } = useUserProfile();
   const [showUserRoles, setShowUserRoles] = useState(false);
   const [showCreateAdmin, setShowCreateAdmin] = useState(false);
+  const [showAdminSetup, setShowAdminSetup] = useState(false);
   const [activeSection, setActiveSection] = useState<AdminSection>('overview');
 
   const isSuperAdmin = profile?.role === 'super-admin';
@@ -323,6 +325,13 @@ export function Dashboard() {
             </button>
 
             <button
+              onClick={() => setShowAdminSetup(!showAdminSetup)}
+              className="btn bg-green-600 text-white hover:bg-green-700 w-full sm:w-auto ml-0 sm:ml-3"
+            >
+              {showAdminSetup ? 'Hide' : 'Show'} Admin Setup
+            </button>
+
+            <button
               onClick={elevateCurrentUserToSuperAdmin}
               className="btn bg-red-600 text-white hover:bg-red-700 w-full sm:w-auto ml-0 sm:ml-3"
             >
@@ -339,6 +348,12 @@ export function Dashboard() {
           {showCreateAdmin && (
             <div className="mt-6">
               <CreateAdminForm />
+            </div>
+          )}
+
+          {showAdminSetup && (
+            <div className="mt-6">
+              <AdminSetup />
             </div>
           )}
         </div>
