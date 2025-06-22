@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react';
 import { 
   MagnifyingGlassIcon,
-  FunnelIcon,
   EyeIcon,
   PencilIcon,
-  TrashIcon,
   UserPlusIcon,
   CalendarDaysIcon,
   PhoneIcon,
@@ -17,8 +15,6 @@ import {
   ChevronDownIcon,
   ChevronUpIcon
 } from '@heroicons/react/24/outline';
-import { collection, getDocs, query, where, orderBy, limit, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
@@ -27,53 +23,89 @@ import LoadingSpinner from '../ui/LoadingSpinner';
 
 interface ClientInfo {
   id: string;
-  // Personal Info
   firstName: string;
   lastName: string;
   email: string;
   mobile: string;
   gender: string;
-  dateOfBirth?: string;
-  idNumber?: string;
-  passport?: string;
   country: string;
-  
-  // Address
   address1: string;
   address2?: string;
   suburb: string;
   cityTown: string;
   province: string;
   postalCode: string;
-  
-  // Contact Details
   preferredMethodOfContact: string;
   maritalStatus: string;
   employmentStatus: string;
-  
-  // Medical Info
   currentMedication?: string;
   chronicConditions?: string;
   currentTreatments?: string;
-  
-  // Service Info
   reasonForTransformation: string;
   whereDidYouHearAboutLifeArrow: string;
   myNearestTreatmentCentre: string;
   referrerName?: string;
-  
-  // Administrative
   status: 'active' | 'inactive' | 'pending-verification' | 'suspended';
-  registrationDate: any;
-  lastActivity?: any;
-  addedTime: any;
-  userId?: string;
+  registrationDate: string;
+  lastActivity?: string;
+  addedTime: string;
 }
 
+// Mock data for demonstration
+const mockClients: ClientInfo[] = [
+  {
+    id: '1',
+    firstName: 'John',
+    lastName: 'Doe',
+    email: 'john.doe@example.com',
+    mobile: '+27 82 123 4567',
+    gender: 'Male',
+    country: 'South Africa',
+    address1: '123 Main Street',
+    suburb: 'Sandton',
+    cityTown: 'Johannesburg',
+    province: 'Gauteng',
+    postalCode: '2196',
+    preferredMethodOfContact: 'Email',
+    maritalStatus: 'Single',
+    employmentStatus: 'Employed',
+    reasonForTransformation: 'Weight loss and fitness improvement',
+    whereDidYouHearAboutLifeArrow: 'Social Media',
+    myNearestTreatmentCentre: 'Sandton Centre',
+    status: 'active',
+    registrationDate: '2024-01-15',
+    addedTime: '2024-01-15'
+  },
+  {
+    id: '2',
+    firstName: 'Sarah',
+    lastName: 'Johnson',
+    email: 'sarah.j@example.com',
+    mobile: '+27 83 987 6543',
+    gender: 'Female',
+    country: 'South Africa',
+    address1: '456 Oak Avenue',
+    suburb: 'Rosebank',
+    cityTown: 'Johannesburg',
+    province: 'Gauteng',
+    postalCode: '2196',
+    preferredMethodOfContact: 'Phone',
+    maritalStatus: 'Married',
+    employmentStatus: 'Self-employed',
+    reasonForTransformation: 'Overall wellness and health monitoring',
+    whereDidYouHearAboutLifeArrow: 'Referral',
+    myNearestTreatmentCentre: 'Rosebank Centre',
+    referrerName: 'Dr. Smith',
+    status: 'pending-verification',
+    registrationDate: '2024-01-20',
+    addedTime: '2024-01-20'
+  }
+];
+
 export function ClientsManagement() {
-  const [clients, setClients] = useState<ClientInfo[]>([]);
-  const [filteredClients, setFilteredClients] = useState<ClientInfo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [clients, setClients] = useState<ClientInfo[]>(mockClients);
+  const [filteredClients, setFilteredClients] = useState<ClientInfo[]>(mockClients);
+  const [loading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [centreFilter, setCentreFilter] = useState('all');
@@ -83,35 +115,13 @@ export function ClientsManagement() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
-    loadClients();
+    // In a real app, this would load from Firebase
+    setClients(mockClients);
   }, []);
 
   useEffect(() => {
     filterAndSortClients();
   }, [clients, searchTerm, statusFilter, centreFilter, sortBy, sortOrder]);
-
-  const loadClients = async () => {
-    try {
-      setLoading(true);
-      const clientsQuery = query(
-        collection(db, 'clients'),
-        orderBy('addedTime', 'desc'),
-        limit(100)
-      );
-      
-      const snapshot = await getDocs(clientsQuery);
-      const clientsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as ClientInfo[];
-      
-      setClients(clientsData);
-    } catch (error) {
-      console.error('Error loading clients:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const filterAndSortClients = () => {
     let filtered = [...clients];
@@ -123,8 +133,7 @@ export function ClientsManagement() {
         client.firstName?.toLowerCase().includes(search) ||
         client.lastName?.toLowerCase().includes(search) ||
         client.email?.toLowerCase().includes(search) ||
-        client.mobile?.includes(search) ||
-        client.idNumber?.includes(search)
+        client.mobile?.includes(search)
       );
     }
 
@@ -147,8 +156,7 @@ export function ClientsManagement() {
           comparison = `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
           break;
         case 'date':
-          comparison = (a.addedTime?.toDate?.() || new Date(a.addedTime)).getTime() - 
-                      (b.addedTime?.toDate?.() || new Date(b.addedTime)).getTime();
+          comparison = new Date(a.addedTime).getTime() - new Date(b.addedTime).getTime();
           break;
         case 'status':
           comparison = a.status.localeCompare(b.status);
@@ -192,10 +200,8 @@ export function ClientsManagement() {
     }
   };
 
-  const formatDate = (date: any) => {
-    if (!date) return 'N/A';
-    const dateObj = date.toDate ? date.toDate() : new Date(date);
-    return dateObj.toLocaleDateString('en-ZA', {
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString('en-ZA', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
@@ -212,21 +218,13 @@ export function ClientsManagement() {
     setExpandedCards(newExpanded);
   };
 
-  const updateClientStatus = async (clientId: string, newStatus: string) => {
-    try {
-      await updateDoc(doc(db, 'clients', clientId), {
-        status: newStatus,
-        lastUpdated: new Date()
-      });
-      
-      setClients(clients.map(client => 
-        client.id === clientId 
-          ? { ...client, status: newStatus as any }
-          : client
-      ));
-    } catch (error) {
-      console.error('Error updating client status:', error);
-    }
+  const updateClientStatus = async (clientId: string, newStatus: 'active' | 'inactive' | 'pending-verification' | 'suspended') => {
+    // In a real app, this would update Firebase
+    setClients(clients.map(client => 
+      client.id === clientId 
+        ? { ...client, status: newStatus }
+        : client
+    ));
   };
 
   const uniqueCentres = [...new Set(clients.map(c => c.myNearestTreatmentCentre).filter(Boolean))];
@@ -305,8 +303,6 @@ export function ClientsManagement() {
                   <div className="space-y-2 text-sm">
                     <div><span className="font-medium">Gender:</span> {client.gender}</div>
                     <div><span className="font-medium">Country:</span> {client.country}</div>
-                    {client.idNumber && <div><span className="font-medium">ID Number:</span> {client.idNumber}</div>}
-                    {client.passport && <div><span className="font-medium">Passport:</span> {client.passport}</div>}
                     <div><span className="font-medium">Marital Status:</span> {client.maritalStatus}</div>
                     <div><span className="font-medium">Employment:</span> {client.employmentStatus}</div>
                   </div>
@@ -333,24 +329,18 @@ export function ClientsManagement() {
                   </div>
                 </div>
 
-                {/* Medical Info */}
-                {(client.currentMedication || client.chronicConditions || client.currentTreatments) && (
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-3">Medical Information</h4>
-                    <div className="space-y-2 text-sm">
-                      {client.currentMedication && <div><span className="font-medium">Current Medication:</span> {client.currentMedication}</div>}
-                      {client.chronicConditions && <div><span className="font-medium">Chronic Conditions:</span> {client.chronicConditions}</div>}
-                      {client.currentTreatments && <div><span className="font-medium">Current Treatments:</span> {client.currentTreatments}</div>}
-                    </div>
-                  </div>
-                )}
+                {/* Transformation Goal */}
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-3">Transformation Goal</h4>
+                  <p className="text-sm text-gray-600">{client.reasonForTransformation}</p>
+                </div>
               </div>
 
               {/* Actions */}
               <div className="mt-6 flex items-center space-x-3">
                 <Select
                   value={client.status}
-                  onChange={(value) => updateClientStatus(client.id, value)}
+                  onChange={(value: string) => updateClientStatus(client.id, value as 'active' | 'inactive' | 'pending-verification' | 'suspended')}
                   options={[
                     { value: 'active', label: 'Active' },
                     { value: 'inactive', label: 'Inactive' },
@@ -406,10 +396,10 @@ export function ClientsManagement() {
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="md:col-span-2">
               <Input
-                placeholder="Search clients by name, email, phone, or ID..."
+                placeholder="Search clients by name, email, phone..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                icon={<MagnifyingGlassIcon className="w-5 h-5" />}
+                leftIcon={<MagnifyingGlassIcon className="w-5 h-5" />}
               />
             </div>
             
@@ -436,10 +426,10 @@ export function ClientsManagement() {
             
             <Select
               value={`${sortBy}-${sortOrder}`}
-              onChange={(value) => {
+              onChange={(value: string) => {
                 const [sort, order] = value.split('-');
-                setSortBy(sort as any);
-                setSortOrder(order as any);
+                setSortBy(sort as 'name' | 'date' | 'status' | 'centre');
+                setSortOrder(order as 'asc' | 'desc');
               }}
               options={[
                 { value: 'date-desc', label: 'Newest First' },
@@ -513,7 +503,6 @@ export function ClientsManagement() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  {/* Complete client details would go here */}
                   <div>
                     <h3 className="text-lg font-semibold mb-4">Contact Information</h3>
                     <div className="space-y-3">
