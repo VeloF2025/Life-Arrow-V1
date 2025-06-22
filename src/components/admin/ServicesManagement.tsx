@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   PlusIcon,
   PencilIcon,
@@ -9,73 +9,28 @@ import {
   ClockIcon,
   CurrencyDollarIcon,
   UserGroupIcon,
-  TagIcon
+  TagIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
+import { db } from '../../lib/firebase';
+import { 
+  collection, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  Timestamp,
+  getDocs
+} from 'firebase/firestore';
 import type { ServiceManagement } from '../../types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Card } from '../ui/Card';
-
-// Mock data for development
-const initialServices: ServiceManagement[] = [
-  {
-    id: '1',
-    name: 'Body Composition Scan',
-    description: 'Comprehensive body analysis using advanced InBody technology to measure muscle mass, body fat, and metabolic rate.',
-    category: 'scanning',
-    duration: 30,
-    price: 15000, // R150.00 in cents
-    requiredQualifications: ['Body Scanner Certified'],
-    equipmentRequired: ['InBody Scanner', 'Consultation Room'],
-    isActive: true,
-    availableAtCentres: ['1', '2'],
-    preparationInstructions: 'Please fast for 4 hours and avoid exercise 12 hours prior to scan.',
-    followUpRequired: true,
-    maxConcurrentBookings: 1,
-    bookingSettings: {
-      advanceBookingDays: 14,
-      cancellationHours: 24,
-      requiresApproval: false,
-    },
-    analytics: {
-      totalBookings: 245,
-      revenue: 367500,
-      averageRating: 4.8,
-      noShowRate: 0.05,
-    },
-    createdAt: new Date('2024-01-10'),
-    updatedAt: new Date('2024-01-20')
-  },
-  {
-    id: '2',
-    name: 'Wellness Consultation',
-    description: 'One-on-one consultation with certified wellness practitioner to discuss health goals and create personalized wellness plan.',
-    category: 'consultation',
-    duration: 60,
-    price: 25000, // R250.00 in cents
-    requiredQualifications: ['Wellness Consultant', 'Nutritionist'],
-    equipmentRequired: ['Consultation Room'],
-    isActive: true,
-    availableAtCentres: ['1', '2'],
-    preparationInstructions: 'Please complete the wellness questionnaire before your appointment.',
-    followUpRequired: true,
-    maxConcurrentBookings: 3,
-    bookingSettings: {
-      advanceBookingDays: 30,
-      cancellationHours: 48,
-      requiresApproval: true,
-    },
-    analytics: {
-      totalBookings: 189,
-      revenue: 472500,
-      averageRating: 4.9,
-      noShowRate: 0.03,
-    },
-    createdAt: new Date('2024-01-05'),
-    updatedAt: new Date('2024-01-18')
-  }
-];
+import LoadingSpinner from '../ui/LoadingSpinner';
 
 interface ServiceFormData {
   name: string;
@@ -102,7 +57,9 @@ const CATEGORIES = [
 ];
 
 export function ServicesManagement() {
-  const [services, setServices] = useState<ServiceManagement[]>(initialServices);
+  const [services, setServices] = useState<ServiceManagement[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -110,6 +67,59 @@ export function ServicesManagement() {
   const [editingService, setEditingService] = useState<ServiceManagement | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [deletingService, setDeletingService] = useState<ServiceManagement | null>(null);
+  const [updating, setUpdating] = useState<string | null>(null);
+
+  // Load services from Firebase
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+
+    // Try real-time listener first
+    const q = query(collection(db, 'services'), orderBy('createdAt', 'desc'));
+    
+    const unsubscribe = onSnapshot(q, 
+      (snapshot) => {
+        const servicesData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toDate() || new Date(),
+          updatedAt: doc.data().updatedAt?.toDate() || new Date()
+        })) as ServiceManagement[];
+        
+        setServices(servicesData);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Real-time listener failed:', error);
+        // Fallback to one-time fetch
+        fetchServicesOnce();
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  const fetchServicesOnce = async () => {
+    try {
+      const q = query(collection(db, 'services'), orderBy('createdAt', 'desc'));
+      const snapshot = await getDocs(q);
+      
+      const servicesData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
+        updatedAt: doc.data().updatedAt?.toDate() || new Date()
+      })) as ServiceManagement[];
+      
+      setServices(servicesData);
+      setError(null);
+    } catch (error) {
+      console.error('Error fetching services:', error);
+      setError('Failed to load services. Please check your connection and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredServices = services.filter(service => {
     const matchesSearch = service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -122,61 +132,112 @@ export function ServicesManagement() {
     return matchesSearch && matchesCategory && matchesStatus;
   });
 
-  const handleCreateService = (formData: ServiceFormData) => {
-    const newService: ServiceManagement = {
-      id: Date.now().toString(),
-      ...formData,
-      isActive: true,
-      availableAtCentres: ['1'], // Default to first centre
-      bookingSettings: {
-        advanceBookingDays: formData.advanceBookingDays,
-        cancellationHours: formData.cancellationHours,
-        requiresApproval: formData.requiresApproval,
-      },
-      analytics: {
-        totalBookings: 0,
-        revenue: 0,
-        averageRating: 0,
-        noShowRate: 0,
-      },
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
+  const handleCreateService = async (formData: ServiceFormData) => {
+    try {
+      setUpdating('creating');
+      
+      const newService = {
+        ...formData,
+        isActive: true,
+        availableAtCentres: [], // Will be set when centres are assigned
+        bookingSettings: {
+          advanceBookingDays: formData.advanceBookingDays,
+          cancellationHours: formData.cancellationHours,
+          requiresApproval: formData.requiresApproval,
+        },
+        analytics: {
+          totalBookings: 0,
+          revenue: 0,
+          averageRating: 0,
+          noShowRate: 0,
+        },
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now()
+      };
 
-    setServices(prev => [...prev, newService]);
-    setIsCreating(false);
+      await addDoc(collection(db, 'services'), newService);
+      setIsCreating(false);
+      setError(null);
+    } catch (error) {
+      console.error('Error creating service:', error);
+      setError('Failed to create service. Please try again.');
+    } finally {
+      setUpdating(null);
+    }
   };
 
-  const handleUpdateService = (formData: ServiceFormData) => {
+  const handleUpdateService = async (formData: ServiceFormData) => {
     if (!editingService) return;
 
-    const updatedService: ServiceManagement = {
-      ...editingService,
-      ...formData,
-      bookingSettings: {
-        advanceBookingDays: formData.advanceBookingDays,
-        cancellationHours: formData.cancellationHours,
-        requiresApproval: formData.requiresApproval,
-      },
-      updatedAt: new Date()
-    };
+    try {
+      setUpdating(editingService.id);
+      
+      const updatedData = {
+        ...formData,
+        bookingSettings: {
+          advanceBookingDays: formData.advanceBookingDays,
+          cancellationHours: formData.cancellationHours,
+          requiresApproval: formData.requiresApproval,
+        },
+        updatedAt: Timestamp.now()
+      };
 
-    setServices(prev => prev.map(service => 
-      service.id === editingService.id ? updatedService : service
-    ));
-    setEditingService(null);
+      await updateDoc(doc(db, 'services', editingService.id), updatedData);
+      setEditingService(null);
+      setError(null);
+    } catch (error) {
+      console.error('Error updating service:', error);
+      setError('Failed to update service. Please try again.');
+    } finally {
+      setUpdating(null);
+    }
   };
 
-  const handleDeleteService = () => {
+  const handleDeleteService = async () => {
     if (!deletingService) return;
 
-    setServices(prev => prev.filter(service => service.id !== deletingService.id));
-    setDeletingService(null);
+    try {
+      setUpdating(deletingService.id);
+      await deleteDoc(doc(db, 'services', deletingService.id));
+      setDeletingService(null);
+      setError(null);
+    } catch (error) {
+      console.error('Error deleting service:', error);
+      setError('Failed to delete service. Please try again.');
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  const handleToggleServiceStatus = async (service: ServiceManagement) => {
+    try {
+      setUpdating(service.id);
+      await updateDoc(doc(db, 'services', service.id), {
+        isActive: !service.isActive,
+        updatedAt: Timestamp.now()
+      });
+      setError(null);
+    } catch (error) {
+      console.error('Error updating service status:', error);
+      setError('Failed to update service status. Please try again.');
+    } finally {
+      setUpdating(null);
+    }
   };
 
   const formatPrice = (priceInCents: number) => {
     return `R${(priceInCents / 100).toFixed(2)}`;
   };
+
+  if (loading) {
+    return (
+      <div className="page-container">
+        <div className="flex items-center justify-center h-64">
+          <LoadingSpinner size="lg" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page-container">
@@ -189,48 +250,82 @@ export function ServicesManagement() {
         <Button
           onClick={() => setIsCreating(true)}
           className="btn-primary"
+          disabled={updating === 'creating'}
         >
           <PlusIcon className="w-5 h-5 mr-2" />
-          Add Service
+          {updating === 'creating' ? 'Creating...' : 'Add Service'}
         </Button>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <Card className="mb-6 bg-red-50 border-red-200">
+          <div className="flex items-center p-4">
+            <ExclamationTriangleIcon className="w-5 h-5 text-red-500 mr-3" />
+            <div className="flex-1">
+              <p className="text-red-800">{error}</p>
+            </div>
+            <Button
+              onClick={() => window.location.reload()}
+              variant="outline"
+              size="sm"
+            >
+              Retry
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {/* Filters */}
       <Card className="mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="relative">
-            <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-            <Input
-              type="text"
-              placeholder="Search services..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
+            <div className="relative">
+              <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <Input
+                placeholder="Search services..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
           </div>
           
-          <Select
-            value={filterCategory}
-            onChange={(value) => setFilterCategory(value)}
-            options={[
-              { value: 'all', label: 'All Categories' },
-              ...CATEGORIES
-            ]}
-          />
-          
-          <Select
-            value={filterStatus}
-            onChange={(value) => setFilterStatus(value)}
-            options={[
-              { value: 'all', label: 'All Status' },
-              { value: 'active', label: 'Active' },
-              { value: 'inactive', label: 'Inactive' }
-            ]}
-          />
-          
-          <div className="flex items-center text-sm text-gray-600">
-            <FunnelIcon className="w-4 h-4 mr-2" />
-            {filteredServices.length} of {services.length} services
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+            <div className="relative">
+              <FunnelIcon className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <Select
+                value={filterCategory}
+                onChange={(value) => setFilterCategory(value)}
+                options={[
+                  { value: 'all', label: 'All Categories' },
+                  ...CATEGORIES
+                ]}
+                className="pl-10"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <Select
+              value={filterStatus}
+              onChange={(value) => setFilterStatus(value)}
+              options={[
+                { value: 'all', label: 'All Status' },
+                { value: 'active', label: 'Active' },
+                { value: 'inactive', label: 'Inactive' }
+              ]}
+            />
+          </div>
+
+          <div className="flex items-end">
+            <div className="text-sm text-gray-600">
+              <span className="font-medium">{filteredServices.length}</span> of{' '}
+              <span className="font-medium">{services.length}</span> services
+            </div>
           </div>
         </div>
       </Card>
@@ -244,7 +339,9 @@ export function ServicesManagement() {
             onView={() => setViewingService(service)}
             onEdit={() => setEditingService(service)}
             onDelete={() => setDeletingService(service)}
+            onToggleStatus={() => handleToggleServiceStatus(service)}
             formatPrice={formatPrice}
+            isUpdating={updating === service.id}
           />
         ))}
         
@@ -295,12 +392,14 @@ export function ServicesManagement() {
   );
 }
 
-const ServiceCard = ({ service, onView, onEdit, onDelete, formatPrice }: {
+const ServiceCard = ({ service, onView, onEdit, onDelete, onToggleStatus, formatPrice, isUpdating }: {
   service: ServiceManagement;
   onView: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onToggleStatus: () => void;
   formatPrice: (price: number) => string;
+  isUpdating: boolean;
 }) => (
   <Card className="hover:shadow-md transition-shadow">
     <div className="flex items-start justify-between">
@@ -374,18 +473,28 @@ const ServiceCard = ({ service, onView, onEdit, onDelete, formatPrice }: {
         <Button
           onClick={onView}
           className="btn-secondary text-sm p-2"
+          disabled={isUpdating}
         >
           <EyeIcon className="w-4 h-4" />
         </Button>
         <Button
           onClick={onEdit}
           className="btn-primary text-sm p-2"
+          disabled={isUpdating}
         >
           <PencilIcon className="w-4 h-4" />
         </Button>
         <Button
+          onClick={onToggleStatus}
+          className={`text-sm p-2 ${service.isActive ? 'btn bg-orange-600 text-white hover:bg-orange-700' : 'btn bg-green-600 text-white hover:bg-green-700'}`}
+          disabled={isUpdating}
+        >
+          {isUpdating ? '...' : (service.isActive ? 'Deactivate' : 'Activate')}
+        </Button>
+        <Button
           onClick={onDelete}
           className="btn bg-red-600 text-white hover:bg-red-700 text-sm p-2"
+          disabled={isUpdating}
         >
           <TrashIcon className="w-4 h-4" />
         </Button>

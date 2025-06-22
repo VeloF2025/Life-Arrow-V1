@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   PlusIcon,
   PencilIcon,
@@ -10,138 +10,28 @@ import {
   MapPinIcon,
   ClockIcon,
   PhoneIcon,
-  UserIcon
+  UserIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
+import { db } from '../../lib/firebase';
+import { 
+  collection, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  Timestamp,
+  getDocs
+} from 'firebase/firestore';
 import type { TreatmentCentre } from '../../types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Card } from '../ui/Card';
-
-// Mock data for development
-const mockCentres: TreatmentCentre[] = [
-  {
-    id: '1',
-    name: 'Cape Town - V&A Waterfront',
-    code: 'CPT-VNA',
-    address: {
-      street: '123 Main Street',
-      suburb: 'V&A Waterfront',
-      city: 'Cape Town',
-      province: 'Western Cape',
-      postalCode: '8001',
-      country: 'South Africa'
-    },
-    contactInfo: {
-      phone: '+27 21 123 4567',
-      email: 'capetown@lifearrow.co.za',
-      managerName: 'Sarah Johnson'
-    },
-    operatingHours: {
-      monday: { isOpen: true, openTime: '08:00', closeTime: '17:00', breakTimes: [] },
-      tuesday: { isOpen: true, openTime: '08:00', closeTime: '17:00', breakTimes: [] },
-      wednesday: { isOpen: true, openTime: '08:00', closeTime: '17:00', breakTimes: [] },
-      thursday: { isOpen: true, openTime: '08:00', closeTime: '17:00', breakTimes: [] },
-      friday: { isOpen: true, openTime: '08:00', closeTime: '17:00', breakTimes: [] },
-      saturday: { isOpen: true, openTime: '09:00', closeTime: '13:00', breakTimes: [] },
-      sunday: { isOpen: false, openTime: '', closeTime: '', breakTimes: [] }
-    },
-    facilities: {
-      availableEquipment: ['InBody Scanner', 'Consultation Room A', 'Consultation Room B', 'Reception Area'],
-      roomsAvailable: [
-        { id: '1', name: 'Consultation Room A', type: 'consultation', capacity: 2, equipment: ['Desk', 'Chairs'] },
-        { id: '2', name: 'Consultation Room B', type: 'consultation', capacity: 2, equipment: ['Desk', 'Chairs'] }
-      ],
-      amenities: ['Parking', 'WiFi', 'Air Conditioning']
-    },
-    servicesOffered: ['service-1', 'service-2'],
-    staffAssigned: ['staff-1', 'staff-2', 'staff-3'],
-    timezone: 'Africa/Johannesburg',
-    isActive: true,
-    capacity: {
-      maxDailyAppointments: 50,
-      maxConcurrentAppointments: 8,
-      maxWalkIns: 5
-    },
-    settings: {
-      allowOnlineBooking: true,
-      requiresInsurance: false,
-      acceptsWalkIns: true,
-      parkingAvailable: true,
-      wheelchairAccessible: true
-    },
-    specialNotes: 'Parking available in the V&A Waterfront parking garage. Enter through the main entrance.',
-    analytics: {
-      utilizationRate: 75,
-      revenue: 250000,
-      clientSatisfaction: 4.2,
-      averageWaitTime: 15
-    },
-    createdAt: new Date('2024-01-10'),
-    updatedAt: new Date('2024-01-20')
-  },
-  {
-    id: '2',
-    name: 'Johannesburg - Sandton City',
-    code: 'JHB-STC',
-    address: {
-      street: '456 Nelson Mandela Square',
-      suburb: 'Sandton',
-      city: 'Johannesburg',
-      province: 'Gauteng',
-      postalCode: '2196',
-      country: 'South Africa'
-    },
-    contactInfo: {
-      phone: '+27 11 987 6543',
-      email: 'johannesburg@lifearrow.co.za',
-      managerName: 'Michael Smith'
-    },
-    operatingHours: {
-      monday: { isOpen: true, openTime: '07:30', closeTime: '18:00', breakTimes: [] },
-      tuesday: { isOpen: true, openTime: '07:30', closeTime: '18:00', breakTimes: [] },
-      wednesday: { isOpen: true, openTime: '07:30', closeTime: '18:00', breakTimes: [] },
-      thursday: { isOpen: true, openTime: '07:30', closeTime: '18:00', breakTimes: [] },
-      friday: { isOpen: true, openTime: '07:30', closeTime: '18:00', breakTimes: [] },
-      saturday: { isOpen: true, openTime: '08:00', closeTime: '14:00', breakTimes: [] },
-      sunday: { isOpen: false, openTime: '', closeTime: '', breakTimes: [] }
-    },
-    facilities: {
-      availableEquipment: ['InBody Scanner', 'Metabolic Cart', 'Consultation Room A', 'Consultation Room B', 'Consultation Room C'],
-      roomsAvailable: [
-        { id: '1', name: 'Consultation Room A', type: 'consultation', capacity: 2, equipment: ['Desk', 'Chairs'] },
-        { id: '2', name: 'Consultation Room B', type: 'consultation', capacity: 2, equipment: ['Desk', 'Chairs'] },
-        { id: '3', name: 'Consultation Room C', type: 'consultation', capacity: 3, equipment: ['Desk', 'Chairs', 'Whiteboard'] }
-      ],
-      amenities: ['Parking', 'WiFi', 'Air Conditioning', 'Valet Parking']
-    },
-    servicesOffered: ['service-1', 'service-2', 'service-3'],
-    staffAssigned: ['staff-4', 'staff-5', 'staff-6', 'staff-7'],
-    timezone: 'Africa/Johannesburg',
-    isActive: true,
-    capacity: {
-      maxDailyAppointments: 75,
-      maxConcurrentAppointments: 12,
-      maxWalkIns: 8
-    },
-    settings: {
-      allowOnlineBooking: true,
-      requiresInsurance: false,
-      acceptsWalkIns: true,
-      parkingAvailable: true,
-      wheelchairAccessible: true
-    },
-    specialNotes: 'Located on Level 2 of Sandton City. Valet parking available.',
-    analytics: {
-      utilizationRate: 85,
-      revenue: 380000,
-      clientSatisfaction: 4.5,
-      averageWaitTime: 12
-    },
-    createdAt: new Date('2024-01-05'),
-    updatedAt: new Date('2024-01-18')
-  }
-];
+import LoadingSpinner from '../ui/LoadingSpinner';
 
 const PROVINCES = [
   { value: 'western-cape', label: 'Western Cape' },
@@ -156,7 +46,9 @@ const PROVINCES = [
 ];
 
 export function CentresManagement() {
-  const [centres, setCentres] = useState<TreatmentCentre[]>(mockCentres);
+  const [centres, setCentres] = useState<TreatmentCentre[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterProvince, setFilterProvince] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -164,6 +56,59 @@ export function CentresManagement() {
   const [editingCentre, setEditingCentre] = useState<TreatmentCentre | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [deletingCentre, setDeletingCentre] = useState<TreatmentCentre | null>(null);
+  const [updating, setUpdating] = useState<string | null>(null);
+
+  // Load centres from Firebase
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+
+    // Try real-time listener first
+    const q = query(collection(db, 'centres'), orderBy('createdAt', 'desc'));
+    
+    const unsubscribe = onSnapshot(q, 
+      (snapshot) => {
+        const centresData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toDate() || new Date(),
+          updatedAt: doc.data().updatedAt?.toDate() || new Date()
+        })) as TreatmentCentre[];
+        
+        setCentres(centresData);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Real-time listener failed:', error);
+        // Fallback to one-time fetch
+        fetchCentresOnce();
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  const fetchCentresOnce = async () => {
+    try {
+      const q = query(collection(db, 'centres'), orderBy('createdAt', 'desc'));
+      const snapshot = await getDocs(q);
+      
+      const centresData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
+        updatedAt: doc.data().updatedAt?.toDate() || new Date()
+      })) as TreatmentCentre[];
+      
+      setCentres(centresData);
+      setError(null);
+    } catch (error) {
+      console.error('Error fetching centres:', error);
+      setError('Failed to load centres. Please check your connection and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredCentres = centres.filter(centre => {
     const matchesSearch = centre.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -177,58 +122,101 @@ export function CentresManagement() {
     return matchesSearch && matchesProvince && matchesStatus;
   });
 
-  const handleCreateCentre = (centreData: Partial<TreatmentCentre>) => {
-    const newCentre: TreatmentCentre = {
-      id: Date.now().toString(),
-      code: `NEW-${Date.now()}`,
-      servicesOffered: [],
-      staffAssigned: [],
-      timezone: 'Africa/Johannesburg',
-      isActive: true,
-      analytics: {
-        utilizationRate: 0,
-        revenue: 0,
-        clientSatisfaction: 0,
-        averageWaitTime: 0
-      },
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      ...centreData
-    } as TreatmentCentre;
+  const handleCreateCentre = async (centreData: Partial<TreatmentCentre>) => {
+    try {
+      setUpdating('creating');
+      
+      const newCentre = {
+        code: `NEW-${Date.now()}`,
+        servicesOffered: [],
+        staffAssigned: [],
+        timezone: 'Africa/Johannesburg',
+        isActive: true,
+        analytics: {
+          utilizationRate: 0,
+          revenue: 0,
+          clientSatisfaction: 0,
+          averageWaitTime: 0
+        },
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+        ...centreData
+      };
 
-    setCentres(prev => [...prev, newCentre]);
-    setIsCreating(false);
+      await addDoc(collection(db, 'centres'), newCentre);
+      setIsCreating(false);
+      setError(null);
+    } catch (error) {
+      console.error('Error creating centre:', error);
+      setError('Failed to create centre. Please try again.');
+    } finally {
+      setUpdating(null);
+    }
   };
 
-  const handleUpdateCentre = (centreData: Partial<TreatmentCentre>) => {
+  const handleUpdateCentre = async (centreData: Partial<TreatmentCentre>) => {
     if (!editingCentre) return;
 
-    const updatedCentre = {
-      ...editingCentre,
-      ...centreData,
-      updatedAt: new Date()
-    };
+    try {
+      setUpdating(editingCentre.id);
+      
+      const updatedData = {
+        ...centreData,
+        updatedAt: Timestamp.now()
+      };
 
-    setCentres(prev => prev.map(centre => 
-      centre.id === editingCentre.id ? updatedCentre : centre
-    ));
-    setEditingCentre(null);
+      await updateDoc(doc(db, 'centres', editingCentre.id), updatedData);
+      setEditingCentre(null);
+      setError(null);
+    } catch (error) {
+      console.error('Error updating centre:', error);
+      setError('Failed to update centre. Please try again.');
+    } finally {
+      setUpdating(null);
+    }
   };
 
-  const handleDeleteCentre = () => {
+  const handleDeleteCentre = async () => {
     if (!deletingCentre) return;
 
-    setCentres(prev => prev.filter(centre => centre.id !== deletingCentre.id));
-    setDeletingCentre(null);
+    try {
+      setUpdating(deletingCentre.id);
+      await deleteDoc(doc(db, 'centres', deletingCentre.id));
+      setDeletingCentre(null);
+      setError(null);
+    } catch (error) {
+      console.error('Error deleting centre:', error);
+      setError('Failed to delete centre. Please try again.');
+    } finally {
+      setUpdating(null);
+    }
   };
 
+  // const handleToggleCentreStatus = async (centre: TreatmentCentre) => {
+  //   try {
+  //     setUpdating(centre.id);
+  //     await updateDoc(doc(db, 'centres', centre.id), {
+  //       isActive: !centre.isActive,
+  //       updatedAt: Timestamp.now()
+  //     });
+  //     setError(null);
+  //   } catch (error) {
+  //     console.error('Error updating centre status:', error);
+  //     setError('Failed to update centre status. Please try again.');
+  //   } finally {
+  //     setUpdating(null);
+  //   }
+  // };
+
+  // TODO: Add toggle functionality to CentreCard component
+  // const toggleCentreStatus = handleToggleCentreStatus;
+
   const formatOperatingHours = (centre: TreatmentCentre) => {
-    const openDays = Object.entries(centre.operatingHours)
-      .filter(([, hours]) => hours.isOpen)
-      .map(([day]) => day.charAt(0).toUpperCase() + day.slice(1))
-      .slice(0, 3);
-    
-    return openDays.length > 0 ? `${openDays.join(', ')}${openDays.length > 3 ? '...' : ''}` : 'Closed';
+    const days = Object.entries(centre.operatingHours);
+    const openDays = days.filter(([, hours]) => hours.isOpen);
+    if (openDays.length === 0) return 'Closed';
+    if (openDays.length === 7) return 'Open daily';
+    return `${openDays.length} days/week`;
   };
 
   const CentreCard = ({ centre }: { centre: TreatmentCentre }) => (
@@ -433,6 +421,16 @@ export function CentresManagement() {
     </div>
   );
 
+  if (loading) {
+    return (
+      <div className="page-container">
+        <div className="flex items-center justify-center h-64">
+          <LoadingSpinner size="lg" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page-container">
       <div className="flex justify-between items-center mb-6">
@@ -443,11 +441,31 @@ export function CentresManagement() {
         <Button 
           onClick={() => setIsCreating(true)}
           className="btn-primary"
+          disabled={updating === 'creating'}
         >
           <PlusIcon className="w-5 h-5 mr-2" />
-          Add Centre
+          {updating === 'creating' ? 'Creating...' : 'Add Centre'}
         </Button>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <Card className="mb-6 bg-red-50 border-red-200">
+          <div className="flex items-center p-4">
+            <ExclamationTriangleIcon className="w-5 h-5 text-red-500 mr-3" />
+            <div className="flex-1">
+              <p className="text-red-800">{error}</p>
+            </div>
+            <Button
+              onClick={() => window.location.reload()}
+              variant="outline"
+              size="sm"
+            >
+              Retry
+            </Button>
+          </div>
+        </Card>
+      )}
 
       <Card className="mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
