@@ -27,6 +27,7 @@ import { elevateCurrentUserToSuperAdmin } from '../../utils/elevateCurrentUser';
 // Import the new management components
 import { ServicesManagement } from '../../components/admin/ServicesManagement';
 import { CentresManagement } from '../../components/admin/CentresManagement';
+import { ClientsManagement } from '../../components/admin/ClientsManagement';
 import AuditPage from './AuditPage';
 // import { StaffManagement } from '../../components/admin/StaffManagement';
 // import { AppointmentsManagement } from '../../components/admin/AppointmentsManagement';
@@ -81,6 +82,8 @@ export function Dashboard() {
     switch (activeSection) {
       case 'overview':
         return renderOverviewDashboard();
+      case 'clients':
+        return renderClientsManagement();
       case 'services':
         return renderServicesManagement();
       case 'centres':
@@ -207,6 +210,21 @@ export function Dashboard() {
       {/* Management Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
         <button 
+          onClick={() => setActiveSection('clients')}
+          className="card hover:bg-gray-50 transition-colors cursor-pointer text-left"
+        >
+          <div className="flex items-center">
+            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+              <UsersIcon className="w-6 h-6 text-green-600" />
+            </div>
+            <div className="ml-4">
+              <h3 className="text-lg font-semibold text-gray-900">Clients</h3>
+              <p className="text-sm text-gray-600">View & manage client database</p>
+            </div>
+          </div>
+        </button>
+
+        <button 
           onClick={() => setActiveSection('services')}
           className="card hover:bg-gray-50 transition-colors cursor-pointer text-left"
         >
@@ -232,21 +250,6 @@ export function Dashboard() {
             <div className="ml-4">
               <h3 className="text-lg font-semibold text-gray-900">Treatment Centres</h3>
               <p className="text-sm text-gray-600">Manage locations & facilities</p>
-            </div>
-          </div>
-        </button>
-
-        <button 
-          onClick={() => setActiveSection('staff')}
-          className="card hover:bg-gray-50 transition-colors cursor-pointer text-left"
-        >
-          <div className="flex items-center">
-            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-              <UserGroupIcon className="w-6 h-6 text-green-600" />
-            </div>
-            <div className="ml-4">
-              <h3 className="text-lg font-semibold text-gray-900">Staff</h3>
-              <p className="text-sm text-gray-600">Manage team & schedules</p>
             </div>
           </div>
         </button>
@@ -395,6 +398,10 @@ export function Dashboard() {
         </div>
       </div>
     </div>
+  );
+
+  const renderClientsManagement = () => (
+    <ClientsManagement />
   );
 
   return (
