@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "life-arrow-v1",
+    "staging": "life-arrow-v1"
+  },
+  "targets": {},
+  "etags": {}
+}

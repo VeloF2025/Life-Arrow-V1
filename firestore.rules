@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users can access their own profile, super-admins can access all
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && 
+        exists(/databases/$(database)/documents/adminProfiles/$(request.auth.uid));
+      allow write: if request.auth != null && 
+        exists(/databases/$(database)/documents/adminProfiles/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/adminProfiles/$(request.auth.uid)).data.role == 'super-admin';
+    }
+    
+    // Client profiles - only the user and their admin can access
+    match /clientProfiles/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && 
+        resource.data.adminId == request.auth.uid;
+      allow read: if request.auth != null && 
+        exists(/databases/$(database)/documents/adminProfiles/$(request.auth.uid));
+    }
+    
+    // Admin profiles - readable by authenticated users, writable by owner and super-admins
+    match /adminProfiles/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && 
+        exists(/databases/$(database)/documents/adminProfiles/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/adminProfiles/$(request.auth.uid)).data.role == 'super-admin';
+    }
+    
+    // Appointments - accessible by both client and admin
+    match /appointments/{appointmentId} {
+      allow read, write: if request.auth != null && 
+        (resource.data.clientId == request.auth.uid || 
+         resource.data.adminId == request.auth.uid);
+      allow create: if request.auth != null &&
+        (request.resource.data.clientId == request.auth.uid ||
+         request.resource.data.adminId == request.auth.uid);
+    }
+    
+    // Progress entries - accessible by client and their admin
+    match /progressEntries/{entryId} {
+      allow read, write: if request.auth != null &&
+        resource.data.clientId == request.auth.uid;
+      allow read: if request.auth != null &&
+        get(/databases/$(database)/documents/clientProfiles/$(resource.data.clientId)).data.adminId == request.auth.uid;
+    }
+    
+    // Health metrics - accessible by client and their admin
+    match /healthMetrics/{metricId} {
+      allow read, write: if request.auth != null &&
+        resource.data.clientId == request.auth.uid;
+      allow read: if request.auth != null &&
+        get(/databases/$(database)/documents/clientProfiles/$(resource.data.clientId)).data.adminId == request.auth.uid;
+    }
+    
+    // Goals - accessible by client and their admin
+    match /goals/{goalId} {
+      allow read, write: if request.auth != null &&
+        resource.data.clientId == request.auth.uid;
+      allow read: if request.auth != null &&
+        get(/databases/$(database)/documents/clientProfiles/$(resource.data.clientId)).data.adminId == request.auth.uid;
+    }
+  }
+} 
