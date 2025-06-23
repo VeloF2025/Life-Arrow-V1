@@ -174,4 +174,100 @@ export function isEmpty(value: unknown): boolean {
   if (Array.isArray(value)) return value.length === 0;
   if (typeof value === 'object') return Object.keys(value).length === 0;
   return false;
+}
+
+/**
+ * Currency mapping based on country
+ */
+const COUNTRY_CURRENCY_MAP: Record<string, { symbol: string; code: string; locale: string }> = {
+  'South Africa': { symbol: 'R', code: 'ZAR', locale: 'en-ZA' },
+  'Botswana': { symbol: 'P', code: 'BWP', locale: 'en-BW' },
+  'Namibia': { symbol: 'N$', code: 'NAD', locale: 'en-NA' },
+  'Eswatini': { symbol: 'E', code: 'SZL', locale: 'en-SZ' },
+  'Lesotho': { symbol: 'L', code: 'LSL', locale: 'en-LS' },
+  'Zimbabwe': { symbol: 'Z$', code: 'ZWL', locale: 'en-ZW' },
+  'Mozambique': { symbol: 'MT', code: 'MZN', locale: 'pt-MZ' },
+  'United Kingdom': { symbol: '£', code: 'GBP', locale: 'en-GB' },
+  'United States': { symbol: '$', code: 'USD', locale: 'en-US' },
+  'Canada': { symbol: 'C$', code: 'CAD', locale: 'en-CA' },
+  'Australia': { symbol: 'A$', code: 'AUD', locale: 'en-AU' },
+  'Other': { symbol: '$', code: 'USD', locale: 'en-US' } // Default fallback
+};
+
+/**
+ * Format price in the appropriate currency based on country
+ * @param priceInCents - Price stored in cents for precision
+ * @param country - Country to determine currency format
+ * @param showSymbol - Whether to show currency symbol (default: true)
+ */
+export function formatPrice(priceInCents: number, country: string = 'South Africa', showSymbol: boolean = true): string {
+  // Convert cents to main currency unit
+  const priceInMainUnit = priceInCents / 100;
+  
+  // Get currency info for the country
+  const currencyInfo = COUNTRY_CURRENCY_MAP[country] || COUNTRY_CURRENCY_MAP['South Africa'];
+  
+  if (!showSymbol) {
+    return priceInMainUnit.toFixed(2);
+  }
+  
+  // Format using native Intl.NumberFormat for proper localization
+  try {
+    return new Intl.NumberFormat(currencyInfo.locale, {
+      style: 'currency',
+      currency: currencyInfo.code,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(priceInMainUnit);
+  } catch (error) {
+    // Fallback to simple formatting if locale isn't supported
+    return `${currencyInfo.symbol}${priceInMainUnit.toFixed(2)}`;
+  }
+}
+
+/**
+ * Get currency symbol for a country
+ */
+export function getCurrencySymbol(country: string = 'South Africa'): string {
+  const currencyInfo = COUNTRY_CURRENCY_MAP[country] || COUNTRY_CURRENCY_MAP['South Africa'];
+  return currencyInfo.symbol;
+}
+
+/**
+ * Get currency code for a country
+ */
+export function getCurrencyCode(country: string = 'South Africa'): string {
+  const currencyInfo = COUNTRY_CURRENCY_MAP[country] || COUNTRY_CURRENCY_MAP['South Africa'];
+  return currencyInfo.code;
+}
+
+/**
+ * Convert price from main currency unit to cents for storage
+ * @param priceInMainUnit - Price in main currency (e.g., Rands, Dollars)
+ * @returns Price in cents
+ */
+export function convertToCents(priceInMainUnit: number): number {
+  return Math.round(priceInMainUnit * 100);
+}
+
+/**
+ * Convert price from cents to main currency unit
+ * @param priceInCents - Price in cents
+ * @returns Price in main currency unit
+ */
+export function convertFromCents(priceInCents: number): number {
+  return priceInCents / 100;
+}
+
+/**
+ * Generate a consistent hash for given string
+ */
+export function generateHash(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0; // Convert to 32bit integer
+  }
+  return hash.toString(36);
 } 

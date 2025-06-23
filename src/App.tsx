@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { useUserProfile } from './hooks/useUserProfile';
 
 // Page imports
@@ -11,14 +12,18 @@ import SignupPage from './pages/auth/SignupPage';
 import { RegistrationPage } from './pages/RegistrationPage';
 import { RegistrationSuccessPage } from './pages/RegistrationSuccessPage';
 import ProfileCompletionPage from './pages/ProfileCompletionPage';
+import AppointmentPage from './pages/AppointmentPage';
 import LoadingSpinner from './components/ui/LoadingSpinner';
+
+// Global styles
+import './index.css';
 
 // Create a client for React Query
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutes
       retry: 1,
-      refetchOnWindowFocus: false,
     },
   },
 });
@@ -126,6 +131,16 @@ function AppContent() {
           } 
         />
         
+        {/* Appointments route - accessible to all authenticated users */}
+        <Route 
+          path="/appointments" 
+          element={
+            <ProtectedRoute>
+              <AppointmentPage />
+            </ProtectedRoute>
+          } 
+        />
+        
         {/* Protected routes - Admin */}
         <Route 
           path="/admin/dashboard" 
@@ -185,6 +200,7 @@ function App() {
       <Router>
         <AppContent />
       </Router>
+      <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
   );
 }

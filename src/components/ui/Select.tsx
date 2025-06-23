@@ -92,4 +92,7 @@ export function Select({
       )}
     </div>
   );
-} 
+}
+
+// Also export as default for compatibility
+export default Select; 

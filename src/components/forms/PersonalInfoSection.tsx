@@ -1,18 +1,34 @@
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
+import { Button } from '../ui/Button';
 import { GENDER_OPTIONS, COUNTRIES } from '../../lib/constants';
 import type { ClientRegistrationData } from '../../lib/validation';
+import {
+  CameraIcon,
+  PhotoIcon,
+  UserIcon,
+  XMarkIcon
+} from '@heroicons/react/24/outline';
 
 export interface PersonalInfoSectionProps {
   data: Partial<ClientRegistrationData>;
   onChange: (field: keyof ClientRegistrationData, value: string) => void;
   errors: Record<string, string>;
+  // Photo upload props
+  photoPreview?: string | null;
+  onPhotoSelect?: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemovePhoto?: () => void;
+  uploadingPhoto?: boolean;
 }
 
 export function PersonalInfoSection({
   data,
   onChange,
-  errors
+  errors,
+  photoPreview,
+  onPhotoSelect,
+  onRemovePhoto,
+  uploadingPhoto = false
 }: PersonalInfoSectionProps) {
   const isInternational = data.country && data.country !== 'South Africa';
 
@@ -26,6 +42,73 @@ export function PersonalInfoSection({
         <p className="text-gray-600">
           Let's start with your basic information to create your profile
         </p>
+      </div>
+
+      {/* Profile Photo Upload */}
+      <div className="bg-gray-50 p-6 rounded-lg">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          Profile Photo (Optional)
+        </h3>
+        
+        <div className="flex items-center space-x-6">
+          {/* Photo Preview */}
+          <div className="relative">
+            <div className="w-24 h-24 rounded-full overflow-hidden">
+              {photoPreview ? (
+                <img
+                  src={photoPreview}
+                  alt="Profile preview"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                  <UserIcon className="w-8 h-8 text-gray-400" />
+                </div>
+              )}
+            </div>
+            {photoPreview && onRemovePhoto && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={onRemovePhoto}
+                className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white p-0"
+                disabled={uploadingPhoto}
+              >
+                <XMarkIcon className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+
+          {/* Upload Buttons */}
+          <div className="flex-1">
+            <div className="flex space-x-3 mb-2">
+              <input
+                id="photo-input-personal"
+                type="file"
+                accept="image/*"
+                onChange={onPhotoSelect}
+                className="hidden"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => document.getElementById('photo-input-personal')?.click()}
+                disabled={uploadingPhoto || !onPhotoSelect}
+              >
+                <PhotoIcon className="w-4 h-4 mr-2" />
+                Upload Photo
+              </Button>
+            </div>
+            <p className="text-xs text-gray-500">
+              Maximum file size: 5MB. Supported formats: JPG, PNG, GIF
+            </p>
+            {errors.photo && (
+              <p className="text-sm text-red-600 mt-1">{errors.photo}</p>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Country Selection (moved to top to determine ID/Passport requirements) */}

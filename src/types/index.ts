@@ -1,5 +1,5 @@
 // User and Authentication Types
-export type UserRole = 'super-admin' | 'admin' | 'client';
+export type UserRole = 'super-admin' | 'admin' | 'client' | 'staff';
 
 export interface User {
   uid: string;
@@ -23,16 +23,13 @@ export interface AdminPermissions {
 
 export interface UserProfile {
   id: string;
-  uid: string;
   email: string;
   firstName: string;
   lastName: string;
   role: UserRole;
-  phone?: string;
   avatar?: string;
   createdAt: Date;
   updatedAt: Date;
-  isActive: boolean;
 }
 
 export interface AdminProfile extends UserProfile {
@@ -134,48 +131,85 @@ export interface VideoRecommendation {
 
 // Appointment Types
 export interface WorkingHours {
-  monday: TimeSlot[];
-  tuesday: TimeSlot[];
-  wednesday: TimeSlot[];
-  thursday: TimeSlot[];
-  friday: TimeSlot[];
-  saturday: TimeSlot[];
-  sunday: TimeSlot[];
+  monday: { start: string; end: string; closed?: boolean };
+  tuesday: { start: string; end: string; closed?: boolean };
+  wednesday: { start: string; end: string; closed?: boolean };
+  thursday: { start: string; end: string; closed?: boolean };
+  friday: { start: string; end: string; closed?: boolean };
+  saturday: { start: string; end: string; closed?: boolean };
+  sunday: { start: string; end: string; closed?: boolean };
 }
 
 export interface TimeSlot {
-  start: string; // "09:00"
-  end: string; // "17:00"
+  id: string;
+  centreId: string;
+  staffId: string;
+  serviceId: string;
+  startTime: Date;
+  endTime: Date;
+  isAvailable: boolean;
+  price: number;
+  staffName: string;
+  serviceName: string;
+  bookedBy?: string;
 }
 
 export interface Appointment {
   id: string;
   clientId: string;
-  adminId: string;
+  centreId: string;
   serviceId: string;
-  date: Date;
-  startTime: string; // "14:00"
-  endTime: string; // "15:00"
-  status: 'scheduled' | 'confirmed' | 'in-progress' | 'completed' | 'cancelled' | 'no-show';
-  type: 'consultation' | 'scan' | 'follow-up' | 'treatment';
+  staffId: string;
+  startTime: Date;
+  endTime: Date;
+  dateTime: Date; // Alternative field name for compatibility
+  duration: number; // Duration in minutes
+  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no-show' | 'rescheduled';
   notes?: string;
-  clientNotes?: string;
-  reminderSent: boolean;
-  paymentStatus: 'pending' | 'paid' | 'failed' | 'refunded';
-  paymentId?: string;
+  price: number;
+  country?: string; // Country for currency formatting
+  
+  // Denormalized for performance
+  clientName: string;
+  clientEmail: string;
+  clientPhone: string;
+  serviceName: string;
+  staffName: string;
+  centreName: string;
+  
+  // Audit fields
+  createdBy: string;
+  lastModifiedBy: string;
   createdAt: Date;
   updatedAt: Date;
+  
+  // Additional fields
+  reminderSent?: boolean;
+  paymentStatus?: 'pending' | 'paid' | 'refunded';
+  cancellationReason?: string;
+  rescheduleHistory?: {
+    previousStartTime: Date;
+    reason: string;
+    timestamp: Date;
+  }[];
 }
 
 export interface Service {
   id: string;
   name: string;
   description: string;
-  duration: number; // in minutes
-  price: number; // in cents
-  category: 'scan' | 'consultation' | 'treatment' | 'follow-up';
+  duration: number; // minutes
+  price: number;
+  category: 'scan' | 'consultation' | 'treatment' | 'wellness';
+  requiredEquipment?: string[];
+  staffQualifications: string[];
   isActive: boolean;
-  requiresSpecialization?: string[];
+  centreIds: string[]; // Which centres offer this service
+  image?: string;
+  benefits?: string[];
+  prerequisites?: string[];
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // Treatment Plans
@@ -450,8 +484,7 @@ export interface ServiceManagement {
 // Treatment Centres (Where We Operate)
 export interface TreatmentCentre {
   id: string;
-  name: string; // "Cape Town - V&A Waterfront"
-  code: string; // "CPT-VNA" for easy reference
+  name: string;
   address: {
     street: string;
     suburb: string;
@@ -459,64 +492,22 @@ export interface TreatmentCentre {
     province: string;
     postalCode: string;
     country: string;
-    coordinates?: {
-      latitude: number;
-      longitude: number;
-    };
+    coordinates: { lat: number; lng: number };
   };
-  contactInfo: {
-    phone: string;
-    email: string;
-    managerName: string;
-    managerPhone?: string;
-    alternateContact?: string;
-  };
+  adminIds: string[];
+  staffIds: string[];
+  services: string[];
+  equipment: string[];
   operatingHours: {
-    [key: string]: { // "monday", "tuesday", etc.
-      isOpen: boolean;
-      openTime: string; // "09:00"
-      closeTime: string; // "17:00"
-      breakTimes: Array<{
-        startTime: string;
-        endTime: string;
-        description: string; // "Lunch break"
-      }>;
-    };
+    [day: string]: { open: string; close: string; closed?: boolean };
   };
-  facilities: {
-    availableEquipment: string[]; // ["InBody Scanner", "Consultation Room A"]
-    roomsAvailable: Array<{
-      id: string;
-      name: string;
-      type: 'consultation' | 'scanning' | 'treatment' | 'waiting';
-      capacity: number;
-      equipment: string[];
-    }>;
-    amenities: string[]; // ["Parking", "WiFi", "Accessible"]
-  };
-  servicesOffered: string[]; // service IDs available at this centre
-  staffAssigned: string[]; // staff IDs who work at this centre
-  timezone: string; // "Africa/Johannesburg"
+  timezone: string;
   isActive: boolean;
-  capacity: {
-    maxDailyAppointments: number;
-    maxConcurrentAppointments: number;
-    maxWalkIns: number;
-  };
-  settings: {
-    allowOnlineBooking: boolean;
-    requiresInsurance: boolean;
-    acceptsWalkIns: boolean;
-    parkingAvailable: boolean;
-    wheelchairAccessible: boolean;
-  };
-  specialNotes: string; // parking info, access instructions, etc.
-  analytics: {
-    utilizationRate: number; // percentage of capacity used
-    revenue: number;
-    clientSatisfaction: number;
-    averageWaitTime: number; // in minutes
-  };
+  phone?: string;
+  email?: string;
+  description?: string;
+  images?: string[];
+  rating?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -524,223 +515,16 @@ export interface TreatmentCentre {
 // Staff Members (Who Provides Services)
 export interface StaffMember {
   id: string;
-  personalInfo: {
-    firstName: string;
-    lastName: string;
-    email: string;
-    phone: string;
-    employeeId: string;
-    dateOfBirth?: Date;
-    avatar?: string;
-  };
-  qualifications: Array<{
-    id: string;
-    certificationName: string;
-    certifyingBody: string;
-    dateObtained: Date;
-    expiryDate?: Date;
-    certificationNumber: string;
-    documentUrl?: string; // uploaded certificate
-    isVerified: boolean;
-    notes?: string;
-  }>;
-  servicesCanPerform: string[]; // service IDs they're qualified for
-  workingCentres: string[]; // centre IDs where they work
-  availability: {
-    [centreId: string]: {
-      [day: string]: Array<{
-        startTime: string;
-        endTime: string;
-        isAvailable: boolean;
-        breakTimes?: Array<{
-          startTime: string;
-          endTime: string;
-          description: string;
-        }>;
-      }>;
-    };
-  };
-  role: 'practitioner' | 'consultant' | 'technician' | 'manager' | 'admin' | 'specialist';
-  employmentInfo: {
-    employmentStatus: 'full-time' | 'part-time' | 'contractor' | 'inactive';
-    hireDate: Date;
-    salary?: number;
-    hourlyRate?: number;
-    benefits: string[];
-    department: string;
-    reportsTo?: string; // staff ID of manager
-  };
-  emergencyContact: {
-    name: string;
-    relationship: string;
-    phone: string;
-    email?: string;
-  };
-  preferences: {
-    preferredCentres: string[];
-    maxAppointmentsPerDay: number;
-    timeOffRequests: Array<{
-      startDate: Date;
-      endDate: Date;
-      reason: string;
-      status: 'pending' | 'approved' | 'denied';
-    }>;
-    notifications: {
-      email: boolean;
-      sms: boolean;
-      scheduleChanges: boolean;
-      newAppointments: boolean;
-    };
-  };
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  position: string;
+  specializations: string[];
+  qualifications: string[];
+  centreIds: string[];
   isActive: boolean;
-  performanceMetrics: {
-    completedAppointments: number;
-    cancelledAppointments: number;
-    noShowRate: number;
-    averageRating: number;
-    clientRetentionRate: number;
-    punctualityScore: number;
-    revenueGenerated: number;
-  };
-  documents: Array<{
-    id: string;
-    type: 'contract' | 'certification' | 'id-copy' | 'resume' | 'other';
-    name: string;
-    url: string;
-    uploadedAt: Date;
-  }>;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-// Enhanced Appointments (Connecting Everything)
-export interface AppointmentManagement {
-  id: string;
-  clientId: string;
-  staffId: string;
-  serviceId: string;
-  centreId: string;
-  appointmentDate: Date;
-  timeSlot: {
-    startTime: string; // "14:00"
-    endTime: string; // "15:30"
-    duration: number; // in minutes
-    roomId?: string; // specific room if applicable
-  };
-  status: 'scheduled' | 'confirmed' | 'checked-in' | 'in-progress' | 'completed' | 'cancelled' | 'no-show' | 'rescheduled';
-  bookingInfo: {
-    bookedBy: string; // user ID who made the booking
-    bookedByRole: 'client' | 'admin' | 'staff';
-    bookedAt: Date;
-    bookingMethod: 'online' | 'phone' | 'walk-in' | 'admin-portal';
-    bookingSource: string; // "website", "mobile-app", "phone", etc.
-  };
-  pricing: {
-    basePrice: number;
-    discounts: Array<{
-      type: 'percentage' | 'fixed';
-      amount: number;
-      reason: string;
-      appliedBy?: string;
-    }>;
-    additionalCharges: Array<{
-      description: string;
-      amount: number;
-    }>;
-    totalPrice: number;
-    paymentStatus: 'pending' | 'partial' | 'paid' | 'refunded' | 'failed';
-    paymentMethod?: 'cash' | 'card' | 'bank-transfer' | 'insurance';
-  };
-  notes: {
-    clientNotes: string; // from client when booking
-    staffNotes: string; // internal staff notes
-    adminNotes: string; // admin/management notes
-    internalFlags: string[]; // ["high-priority", "first-time", "vip"]
-  };
-  communication: {
-    remindersSent: Array<{
-      type: 'email' | 'sms' | 'whatsapp' | 'push';
-      sentAt: Date;
-      status: 'sent' | 'delivered' | 'failed' | 'opened';
-      content: string;
-    }>;
-    clientCommunication: Array<{
-      timestamp: Date;
-      type: 'email' | 'phone' | 'sms';
-      direction: 'inbound' | 'outbound';
-      content: string;
-      handledBy?: string;
-    }>;
-  };
-  workflow: {
-    checkInTime?: Date;
-    startTime?: Date;
-    endTime?: Date;
-    waitTime?: number; // minutes waited
-    serviceTime?: number; // actual service duration
-    followUpRequired: boolean;
-    followUpScheduled?: Date;
-  };
-  rescheduleHistory: Array<{
-    previousDate: Date;
-    previousTime: string;
-    newDate: Date;
-    newTime: string;
-    reason: string;
-    rescheduledBy: string;
-    rescheduledAt: Date;
-    fee?: number; // reschedule fee if applicable
-  }>;
-  satisfaction: {
-    rating?: number; // 1-5 stars
-    feedback?: string;
-    staffRating?: number;
-    facilityRating?: number;
-    recommendationScore?: number; // NPS
-    submittedAt?: Date;
-  };
-  metadata: {
-    isFirstVisit: boolean;
-    sourceOfReferral?: string;
-    insuranceInfo?: {
-      provider: string;
-      policyNumber: string;
-      preAuthRequired: boolean;
-      preAuthNumber?: string;
-    };
-    specialRequirements?: string[]; // ["wheelchair-access", "interpreter"]
-  };
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-// Equipment and Resource Management
-export interface Equipment {
-  id: string;
-  name: string;
-  type: 'scanner' | 'consultation-furniture' | 'computer' | 'medical-device' | 'other';
-  model?: string;
-  serialNumber?: string;
-  purchaseDate?: Date;
-  warrantyExpiry?: Date;
-  status: 'operational' | 'maintenance' | 'repair' | 'retired';
-  centreId: string;
-  roomId?: string;
-  maintenanceSchedule: Array<{
-    date: Date;
-    type: 'routine' | 'repair' | 'calibration';
-    technician: string;
-    notes: string;
-    cost?: number;
-  }>;
-  usageLog: Array<{
-    appointmentId: string;
-    usedAt: Date;
-    duration: number;
-  }>;
-  specifications: Record<string, any>;
-  createdAt: Date;
-  updatedAt: Date;
+  photoUrl?: string;
 }
 
 // Booking Rules and Validation
@@ -778,4 +562,103 @@ export interface BookingRule {
   };
   createdAt: Date;
   updatedAt: Date;
+}
+
+// Booking Data
+export interface BookingData {
+  centre: TreatmentCentre;
+  service: ServiceManagement;
+  staff: StaffMember;
+  timeSlot: TimeSlot;
+  clientId?: string; // For admin bookings
+  clientNotes?: string; // Optional notes from client
+}
+
+// Location
+export interface Location {
+  coordinates: { lat: number; lng: number };
+  city?: string;
+  country?: string;
+  accuracy: 'ip' | 'gps';
+}
+
+// Permission Types
+export interface RolePermissions {
+  appointments: 'own' | 'centre_assigned' | 'centre_all' | 'system_wide';
+  booking: string[];
+  dataAccess: 'personal_only' | 'assigned_clients' | 'centre_complete' | 'unrestricted';
+}
+
+export interface SystemMetrics {
+  totalCentres: number;
+  activeClients: number;
+  totalStaff: number;
+  monthlyRevenue: number;
+  growthRate: number;
+  totalAppointments: number;
+  utilization: number;
+  noShowRate: number;
+}
+
+export interface CentreAnalytics {
+  centreId: string;
+  totalAppointments: number;
+  revenue: number;
+  utilization: number;
+  noShowRate: number;
+  topServices: { serviceId: string; serviceName: string; count: number }[];
+  staffPerformance: { staffId: string; staffName: string; appointments: number; rating: number }[];
+  monthlyTrends: { month: string; appointments: number; revenue: number }[];
+}
+
+// Form Types
+export interface ClientRegistrationData {
+  // Personal Information
+  firstName: string;
+  lastName: string;
+  email: string;
+  mobile: string;
+  gender: string;
+  dateOfBirth: string;
+  country: string;
+  idNumber?: string;
+  passport?: string;
+  photoUrl?: string;
+  
+  // Address Information
+  streetAddress: string;
+  city: string;
+  province: string;
+  postalCode: string;
+  
+  // Contact & Personal Details
+  homePhone?: string;
+  workPhone?: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  emergencyContactRelationship: string;
+  preferredLanguage: string;
+  occupation?: string;
+  
+  // Medical Information
+  medicalAidProvider?: string;
+  medicalAidNumber?: string;
+  allergies?: string;
+  medications?: string;
+  medicalHistory?: string;
+  
+  // Service Information
+  myNearestTreatmentCentre: string;
+  servicesInterestedIn: string[];
+  howDidYouHearAboutUs: string;
+  additionalInfo?: string;
+  
+  // Terms and Admin
+  agreeToTerms: boolean;
+  agreeToMarketing: boolean;
+  adminId?: string;
+  
+  // Timestamps
+  createdAt?: Date;
+  updatedAt?: Date;
 } 

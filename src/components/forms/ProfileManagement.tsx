@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../../lib/firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { auth, db, storage } from '../../lib/firebase';
 import { Button } from '../ui/Button';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import {
@@ -12,7 +13,11 @@ import {
   MapPinIcon,
   PhoneIcon,
   HeartIcon,
-  StarIcon
+  StarIcon,
+  CameraIcon,
+  PhotoIcon,
+  UserIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 
 interface ProfileData {
@@ -25,6 +30,7 @@ interface ProfileData {
   country: string;
   idNumber: string;
   passport?: string;
+  photoUrl?: string;
   
   // Address Information
   address1: string;
@@ -63,6 +69,13 @@ export function ProfileManagement({ onNavigateToCompletion }: ProfileManagementP
   const [loading, setLoading] = useState(true);
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  
+  // Photo upload state
+  const [showPhotoUpload, setShowPhotoUpload] = useState(false);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -99,6 +112,7 @@ export function ProfileManagement({ onNavigateToCompletion }: ProfileManagementP
             country: userData.country || '',
             idNumber: userData.idNumber || '',
             passport: userData.passport || '',
+            photoUrl: userData.photoUrl || '',
             address1: userData.address1 || '',
             address2: userData.address2 || '',
             suburb: userData.suburb || '',
@@ -165,6 +179,114 @@ export function ProfileManagement({ onNavigateToCompletion }: ProfileManagementP
     return { percentage, isComplete };
   };
 
+  // Photo upload functions
+  const handlePhotoSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        setError('Photo size must be less than 5MB');
+        return;
+      }
+      
+      if (!file.type.startsWith('image/')) {
+        setError('Please select a valid image file');
+        return;
+      }
+
+      setPhotoFile(file);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setPhotoPreview(e.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleCameraCapture = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      setShowCamera(true);
+      // Store the stream for the camera modal
+      (window as any).cameraStream = stream;
+    } catch (error) {
+      console.error('Camera access denied:', error);
+      setError('Camera access denied. Please use file upload instead.');
+    }
+  };
+
+  const capturePhoto = () => {
+    const video = document.getElementById('camera-video-profile') as HTMLVideoElement;
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    
+    if (video && context) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0);
+      
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+          setPhotoFile(file);
+          
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            setPhotoPreview(e.target?.result as string);
+          };
+          reader.readAsDataURL(file);
+          
+          closeCameraModal();
+        }
+      }, 'image/jpeg', 0.8);
+    }
+  };
+
+  const closeCameraModal = () => {
+    const stream = (window as any).cameraStream;
+    if (stream) {
+      stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+      delete (window as any).cameraStream;
+    }
+    setShowCamera(false);
+  };
+
+  const uploadPhoto = async (file: File, userId: string): Promise<string> => {
+    const photoRef = ref(storage, `clients/${userId}/photo_${Date.now()}`);
+    await uploadBytes(photoRef, file);
+    return await getDownloadURL(photoRef);
+  };
+
+  const handlePhotoUpload = async () => {
+    if (!photoFile || !auth.currentUser) return;
+
+    try {
+      setUploadingPhoto(true);
+      const photoUrl = await uploadPhoto(photoFile, auth.currentUser.uid);
+      
+      // Update profile data
+      await updateDoc(doc(db, 'clientProfiles', auth.currentUser.uid), {
+        photoUrl,
+        updatedAt: new Date()
+      });
+
+      // Update local state
+      setProfileData(prev => prev ? { ...prev, photoUrl } : null);
+      setShowPhotoUpload(false);
+      setPhotoFile(null);
+      setPhotoPreview(null);
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      setError('Failed to upload photo. Please try again.');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const removePhoto = () => {
+    setPhotoFile(null);
+    setPhotoPreview(null);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -227,6 +349,46 @@ export function ProfileManagement({ onNavigateToCompletion }: ProfileManagementP
 
       {/* Profile Information Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Profile Photo Section */}
+        <div className="lg:col-span-2">
+          <div className="card p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Profile Photo</h3>
+              <Button
+                onClick={() => setShowPhotoUpload(true)}
+                variant="outline"
+                size="sm"
+              >
+                <CameraIcon className="w-4 h-4 mr-2" />
+                {profileData?.photoUrl ? 'Update Photo' : 'Add Photo'}
+              </Button>
+            </div>
+            <div className="flex items-center space-x-4">
+              <div className="w-20 h-20 rounded-full overflow-hidden">
+                {profileData?.photoUrl ? (
+                  <img
+                    src={profileData.photoUrl}
+                    alt={`${profileData.name} ${profileData.surname}`}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                    <UserIcon className="w-8 h-8 text-gray-400" />
+                  </div>
+                )}
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">
+                  {profileData?.photoUrl ? 'Profile photo uploaded' : 'No profile photo'}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Click "Add Photo" to upload or take a new photo
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Personal Information */}
         <div className="card p-6">
           <div className="flex items-center mb-4">
@@ -351,6 +513,140 @@ export function ProfileManagement({ onNavigateToCompletion }: ProfileManagementP
           )}
         </div>
       </div>
+
+      {/* Photo Upload Modal */}
+      {showPhotoUpload && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Update Profile Photo</h3>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setShowPhotoUpload(false);
+                  removePhoto();
+                }}
+              >
+                <XMarkIcon className="w-6 h-6" />
+              </Button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Photo Preview */}
+              <div className="flex justify-center">
+                <div className="w-32 h-32 rounded-full overflow-hidden">
+                  {photoPreview || profileData?.photoUrl ? (
+                    <img
+                      src={photoPreview || profileData?.photoUrl}
+                      alt="Profile preview"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                      <UserIcon className="w-12 h-12 text-gray-400" />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Upload Buttons */}
+              <div className="flex justify-center space-x-3">
+                <input
+                  id="photo-input-profile"
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoSelect}
+                  className="hidden"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => document.getElementById('photo-input-profile')?.click()}
+                  disabled={uploadingPhoto}
+                >
+                  <PhotoIcon className="w-4 h-4 mr-2" />
+                  Upload Photo
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCameraCapture}
+                  disabled={uploadingPhoto}
+                >
+                  <CameraIcon className="w-4 h-4 mr-2" />
+                  Take Photo
+                </Button>
+              </div>
+
+              {/* Action Buttons */}
+              {photoFile && (
+                <div className="flex justify-end space-x-3">
+                  <Button
+                    variant="outline"
+                    onClick={removePhoto}
+                    disabled={uploadingPhoto}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handlePhotoUpload}
+                    disabled={uploadingPhoto}
+                  >
+                    {uploadingPhoto ? 'Uploading...' : 'Save Photo'}
+                  </Button>
+                </div>
+              )}
+
+              <p className="text-xs text-gray-500 text-center">
+                Maximum file size: 5MB. Supported formats: JPG, PNG, GIF
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Camera Modal */}
+      {showCamera && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-lg w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Take Photo</h3>
+              <Button variant="ghost" onClick={closeCameraModal}>
+                <XMarkIcon className="w-6 h-6" />
+              </Button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="relative">
+                <video
+                  id="camera-video-profile"
+                  autoPlay
+                  playsInline
+                  className="w-full h-64 bg-gray-900 rounded-lg object-cover"
+                  ref={(video) => {
+                    if (video && (window as any).cameraStream) {
+                      video.srcObject = (window as any).cameraStream;
+                    }
+                  }}
+                />
+                <div className="absolute inset-0 border-4 border-white border-opacity-50 rounded-lg pointer-events-none">
+                  <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-32 h-32 border-2 border-white rounded-full"></div>
+                </div>
+              </div>
+
+              <div className="flex justify-center space-x-3">
+                <Button variant="outline" onClick={closeCameraModal}>
+                  Cancel
+                </Button>
+                <Button onClick={capturePhoto}>
+                  <CameraIcon className="w-4 h-4 mr-2" />
+                  Capture Photo
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 } 

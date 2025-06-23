@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../../lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { auth, db, storage } from '../../lib/firebase';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { validateCompleteProfile, formatValidationErrors, type ClientRegistrationData } from '../../lib/validation';
 import { useFormAutoSave } from '../../hooks/useFormAutoSave';
@@ -38,6 +39,11 @@ export function ProfileCompletionForm({ onComplete }: ProfileCompletionFormProps
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState<Partial<ClientRegistrationData>>({});
+
+  // Photo upload state
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   // Auto-save hook
   const { loadFromStorage, clearStorage } = useFormAutoSave({
@@ -288,10 +294,19 @@ export function ProfileCompletionForm({ onComplete }: ProfileCompletionFormProps
 
     try {
       setSaving(true);
+      setUploadingPhoto(!!photoFile);
+      
+      let photoUrl = '';
+      
+      // Upload photo if selected
+      if (photoFile && user) {
+        photoUrl = await uploadPhoto(photoFile, user.uid);
+      }
       
       // Save to clientProfiles collection
       await setDoc(doc(db, 'clientProfiles', user.uid), {
         ...formData,
+        ...(photoUrl && { photoUrl }),
         completedAt: new Date(),
         updatedAt: new Date()
       });
@@ -307,6 +322,7 @@ export function ProfileCompletionForm({ onComplete }: ProfileCompletionFormProps
       setErrors({ general: 'Failed to save profile. Please try again.' });
     } finally {
       setSaving(false);
+      setUploadingPhoto(false);
     }
   };
 
@@ -319,7 +335,15 @@ export function ProfileCompletionForm({ onComplete }: ProfileCompletionFormProps
 
     switch (currentStep) {
       case 1:
-        return <PersonalInfoSection {...stepProps} />;
+        return (
+          <PersonalInfoSection 
+            {...stepProps} 
+            photoPreview={photoPreview}
+            onPhotoSelect={handlePhotoSelect}
+            onRemovePhoto={removePhoto}
+            uploadingPhoto={uploadingPhoto}
+          />
+        );
       case 2:
         return <AddressInfoSection {...stepProps} />;
       case 3:
@@ -338,6 +362,45 @@ export function ProfileCompletionForm({ onComplete }: ProfileCompletionFormProps
   const calculateProgress = () => {
     const totalSteps = FORM_STEPS.length;
     return Math.round((currentStep / totalSteps) * 100);
+  };
+
+  // Photo upload functions
+  const handlePhotoSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        setErrors(prev => ({ ...prev, photo: 'Photo size must be less than 5MB' }));
+        return;
+      }
+      
+      if (!file.type.startsWith('image/')) {
+        setErrors(prev => ({ ...prev, photo: 'Please select a valid image file' }));
+        return;
+      }
+
+      setPhotoFile(file);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setPhotoPreview(e.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+      
+      // Clear photo error
+      if (errors.photo) {
+        setErrors(prev => ({ ...prev, photo: '' }));
+      }
+    }
+  };
+
+  const uploadPhoto = async (file: File, userId: string): Promise<string> => {
+    const photoRef = ref(storage, `clients/${userId}/photo_${Date.now()}`);
+    await uploadBytes(photoRef, file);
+    return await getDownloadURL(photoRef);
+  };
+
+  const removePhoto = () => {
+    setPhotoFile(null);
+    setPhotoPreview(null);
   };
 
   if (loading) {

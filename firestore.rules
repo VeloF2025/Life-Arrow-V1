@@ -53,6 +53,9 @@ service cloud.firestore {
       allow create: if request.auth != null &&
         (request.resource.data.clientId == request.auth.uid ||
          request.resource.data.adminId == request.auth.uid);
+      // Allow admins to read all appointments for availability checking
+      allow read: if request.auth != null && 
+        exists(/databases/$(database)/documents/adminProfiles/$(request.auth.uid));
     }
     
     // Progress entries - accessible by client and their admin

@@ -22,26 +22,82 @@ export function useUserProfile() {
         setLoading(true);
         setError(null);
         
+        // First, get the main user record to determine role
         const userDoc = await getDoc(doc(db, 'users', authUser.uid));
         
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          setProfile({
-            id: userDoc.id,
-            uid: authUser.uid,
-            email: userData.email,
-            firstName: userData.firstName,
-            lastName: userData.lastName,
-            role: userData.role,
-            phone: userData.phone,
-            avatar: userData.avatar,
-            createdAt: userData.createdAt?.toDate() || new Date(),
-            updatedAt: userData.updatedAt?.toDate() || new Date(),
-            isActive: userData.isActive ?? true,
-          });
-        } else {
+        if (!userDoc.exists()) {
           setError('User profile not found');
+          setLoading(false);
+          return;
         }
+
+        const userData = userDoc.data();
+        const userRole = userData.role;
+
+        // Create base profile from users collection
+        let profile: UserProfile = {
+          id: userDoc.id,
+          email: userData.email,
+          firstName: userData.firstName,
+          lastName: userData.lastName,
+          role: userRole,
+          avatar: userData.avatar,
+          createdAt: userData.createdAt?.toDate() || new Date(),
+          updatedAt: userData.updatedAt?.toDate() || new Date(),
+        };
+
+        // Fetch role-specific data based on user role
+        let roleSpecificData = null;
+        
+        switch (userRole) {
+          case 'client':
+            try {
+              const clientDoc = await getDoc(doc(db, 'clientProfiles', authUser.uid));
+              if (clientDoc.exists()) {
+                roleSpecificData = clientDoc.data();
+              }
+            } catch {
+              console.warn('Client profile not found, using basic user data');
+            }
+            break;
+
+          case 'admin':
+          case 'super-admin':
+            try {
+              const adminDoc = await getDoc(doc(db, 'adminProfiles', authUser.uid));
+              if (adminDoc.exists()) {
+                roleSpecificData = adminDoc.data();
+              }
+            } catch {
+              console.warn('Admin profile not found, using basic user data');
+            }
+            break;
+
+          case 'staff':
+            try {
+              const staffDoc = await getDoc(doc(db, 'staff', authUser.uid));
+              if (staffDoc.exists()) {
+                roleSpecificData = staffDoc.data();
+              }
+            } catch {
+              console.warn('Staff profile not found, using basic user data');
+            }
+            break;
+        }
+
+        // Merge role-specific data if available
+        if (roleSpecificData) {
+          profile = {
+            ...profile,
+            ...roleSpecificData,
+            // Ensure core fields from users collection take precedence
+            id: profile.id,
+            email: profile.email,
+            role: profile.role,
+          };
+        }
+
+        setProfile(profile);
       } catch (err) {
         setError('Failed to fetch user profile');
         console.error('Error fetching user profile:', err);

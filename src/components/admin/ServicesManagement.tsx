@@ -31,6 +31,7 @@ import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Card } from '../ui/Card';
 import LoadingSpinner from '../ui/LoadingSpinner';
+import { formatPrice as formatPriceUtil } from '../../lib/utils';
 
 interface ServiceFormData {
   name: string;
@@ -58,26 +59,48 @@ const CATEGORIES = [
 
 export function ServicesManagement() {
   const [services, setServices] = useState<ServiceManagement[]>([]);
+  const [centres, setCentres] = useState<{ id: string; name: string; services?: string[] }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterCategory, setFilterCategory] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [viewingService, setViewingService] = useState<ServiceManagement | null>(null);
-  const [editingService, setEditingService] = useState<ServiceManagement | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
-  const [deletingService, setDeletingService] = useState<ServiceManagement | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
+  
+  // Form states
+  const [isCreating, setIsCreating] = useState(false);
+  const [editingService, setEditingService] = useState<ServiceManagement | null>(null);
+  const [viewingService, setViewingService] = useState<ServiceManagement | null>(null);
+  const [deletingService, setDeletingService] = useState<ServiceManagement | null>(null);
+  
+  // Filter states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
 
-  // Load services from Firebase
+  // Load services and centres from Firebase
   useEffect(() => {
     setLoading(true);
     setError(null);
 
-    // Try real-time listener first
-    const q = query(collection(db, 'services'), orderBy('createdAt', 'desc'));
-    
-    const unsubscribe = onSnapshot(q, 
+    // Set up real-time listener for centres
+    const centresQuery = query(collection(db, 'centres'), orderBy('createdAt', 'desc'));
+    const unsubscribeCentres = onSnapshot(centresQuery, 
+      (snapshot) => {
+        const centresData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          name: doc.data().name || 'Unnamed Centre',
+          services: doc.data().services || [],
+          ...doc.data()
+        }));
+        setCentres(centresData);
+        console.log('Centres updated:', centresData.map(c => `${c.name}: ${c.services?.length || 0} services`));
+      },
+      (error) => {
+        console.error('Centres listener failed:', error);
+      }
+    );
+
+    // Set up real-time listener for services
+    const servicesQuery = query(collection(db, 'services'), orderBy('createdAt', 'desc'));
+    const unsubscribeServices = onSnapshot(servicesQuery, 
       (snapshot) => {
         const servicesData = snapshot.docs.map(doc => ({
           id: doc.id,
@@ -88,15 +111,19 @@ export function ServicesManagement() {
         
         setServices(servicesData);
         setLoading(false);
+        console.log('Services updated:', servicesData.map(s => `${s.name}: available at ${s.availableAtCentres?.length || 0} centres`));
       },
       (error) => {
-        console.error('Real-time listener failed:', error);
+        console.error('Services listener failed:', error);
         // Fallback to one-time fetch
         fetchServicesOnce();
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeCentres();
+      unsubscribeServices();
+    };
   }, []);
 
   const fetchServicesOnce = async () => {
@@ -225,8 +252,71 @@ export function ServicesManagement() {
     }
   };
 
+  const handleUpdateServiceCentres = async (serviceId: string, centreIds: string[]) => {
+    try {
+      setUpdating(serviceId);
+      
+      if (serviceId === 'all') {
+        // Link all services to all centres
+        for (const service of services) {
+          await updateDoc(doc(db, 'services', service.id), {
+            availableAtCentres: centreIds,
+            updatedAt: Timestamp.now()
+          });
+        }
+        
+        // Update all centres to include all services
+        for (const centre of centres) {
+          await updateDoc(doc(db, 'centres', centre.id), {
+            services: services.map(s => s.id),
+            updatedAt: Timestamp.now()
+          });
+        }
+      } else {
+        // Update single service's availableAtCentres
+        await updateDoc(doc(db, 'services', serviceId), {
+          availableAtCentres: centreIds,
+          updatedAt: Timestamp.now()
+        });
+
+        // Update each centre's services array - FIXED LOGIC
+        for (const centre of centres) {
+          const currentServices = centre.services || [];
+          let updatedServices = [...currentServices];
+          
+          if (centreIds.includes(centre.id)) {
+            // Add service to centre if not already there
+            if (!updatedServices.includes(serviceId)) {
+              updatedServices.push(serviceId);
+            }
+          } else {
+            // Remove service from centre
+            updatedServices = updatedServices.filter((id: string) => id !== serviceId);
+          }
+          
+          // Always update if the services array changed
+          if (JSON.stringify(updatedServices.sort()) !== JSON.stringify(currentServices.sort())) {
+            await updateDoc(doc(db, 'centres', centre.id), {
+              services: updatedServices,
+              updatedAt: Timestamp.now()
+            });
+            console.log(`Updated centre ${centre.name}: services = [${updatedServices.join(', ')}]`);
+          }
+        }
+      }
+      
+      setError(null);
+      console.log(`Successfully updated service ${serviceId} for centres: [${centreIds.join(', ')}]`);
+    } catch (error) {
+      console.error('Error updating service centres:', error);
+      setError('Failed to update service centres. Please try again.');
+    } finally {
+      setUpdating(null);
+    }
+  };
+
   const formatPrice = (priceInCents: number) => {
-    return `R${(priceInCents / 100).toFixed(2)}`;
+    return formatPriceUtil(priceInCents);
   };
 
   if (loading) {
@@ -245,7 +335,7 @@ export function ServicesManagement() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Services Management</h1>
-          <p className="text-gray-600">Manage your service offerings, pricing, and availability</p>
+          <p className="text-gray-600">Manage your service offerings, pricing, and centre availability</p>
         </div>
         <Button
           onClick={() => setIsCreating(true)}
@@ -336,10 +426,12 @@ export function ServicesManagement() {
           <ServiceCard 
             key={service.id} 
             service={service}
+            centres={centres}
             onView={() => setViewingService(service)}
             onEdit={() => setEditingService(service)}
             onDelete={() => setDeletingService(service)}
             onToggleStatus={() => handleToggleServiceStatus(service)}
+            onUpdateCentres={(centreIds) => handleUpdateServiceCentres(service.id, centreIds)}
             formatPrice={formatPrice}
             isUpdating={updating === service.id}
           />
@@ -392,12 +484,14 @@ export function ServicesManagement() {
   );
 }
 
-const ServiceCard = ({ service, onView, onEdit, onDelete, onToggleStatus, formatPrice, isUpdating }: {
+const ServiceCard = ({ service, centres, onView, onEdit, onDelete, onToggleStatus, onUpdateCentres, formatPrice, isUpdating }: {
   service: ServiceManagement;
+  centres: { id: string; name: string; services?: string[] }[];
   onView: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onToggleStatus: () => void;
+  onUpdateCentres: (centreIds: string[]) => void;
   formatPrice: (price: number) => string;
   isUpdating: boolean;
 }) => (
@@ -467,6 +561,53 @@ const ServiceCard = ({ service, onView, onEdit, onDelete, onToggleStatus, format
             <span className="ml-1">{service.analytics.averageRating}/5</span>
           </div>
         </div>
+
+        {/* Centres Management Section */}
+        <div className="mt-4 pt-4 border-t border-gray-200">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-medium text-gray-900">Available at Centres</h4>
+            <span className="text-xs text-gray-500">
+              {service.availableAtCentres?.length || 0} of {centres.length} centres
+            </span>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {centres.map((centre) => {
+              const isSelected = service.availableAtCentres?.includes(centre.id) || false;
+              
+              return (
+                <label
+                  key={centre.id}
+                  className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-50 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={(e) => {
+                      const currentCentres = service.availableAtCentres || [];
+                      let newCentres;
+                      
+                      if (e.target.checked) {
+                        newCentres = [...currentCentres, centre.id];
+                      } else {
+                        newCentres = currentCentres.filter(id => id !== centre.id);
+                      }
+                      
+                      onUpdateCentres(newCentres);
+                    }}
+                    className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                    disabled={isUpdating}
+                  />
+                  <span className="text-sm text-gray-700">{centre.name}</span>
+                </label>
+              );
+            })}
+          </div>
+          
+          {centres.length === 0 && (
+            <p className="text-sm text-gray-500 italic">No centres available</p>
+          )}
+        </div>
       </div>
       
       <div className="flex space-x-2 ml-4">
@@ -485,14 +626,14 @@ const ServiceCard = ({ service, onView, onEdit, onDelete, onToggleStatus, format
           <PencilIcon className="w-4 h-4" />
         </Button>
         <Button
-          onClick={onToggleStatus}
+          onClick={() => onToggleStatus()}
           className={`text-sm p-2 ${service.isActive ? 'btn bg-orange-600 text-white hover:bg-orange-700' : 'btn bg-green-600 text-white hover:bg-green-700'}`}
           disabled={isUpdating}
         >
           {isUpdating ? '...' : (service.isActive ? 'Deactivate' : 'Activate')}
         </Button>
         <Button
-          onClick={onDelete}
+          onClick={() => onDelete()}
           className="btn bg-red-600 text-white hover:bg-red-700 text-sm p-2"
           disabled={isUpdating}
         >
@@ -633,12 +774,30 @@ const ServiceFormModal = ({ service, onClose, onSubmit }: {
     requiresApproval: service?.bookingSettings.requiresApproval || false,
   });
 
+  // Separate state for the price in Rands (for display)
+  const [priceInRands, setPriceInRands] = useState<string>(
+    service ? (service.price / 100).toFixed(2) : '0.00'
+  );
+
   const [newQualification, setNewQualification] = useState('');
   const [newEquipment, setNewEquipment] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(formData);
+    // Convert price from Rands to cents before submitting
+    const priceInCents = Math.round(parseFloat(priceInRands) * 100);
+    onSubmit({
+      ...formData,
+      price: priceInCents
+    });
+  };
+
+  const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setPriceInRands(value);
+    // Update the formData price in cents for validation
+    const priceInCents = Math.round(parseFloat(value || '0') * 100);
+    setFormData(prev => ({ ...prev, price: priceInCents }));
   };
 
   const addQualification = () => {
@@ -746,16 +905,18 @@ const ServiceFormModal = ({ service, onClose, onSubmit }: {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Price (cents)
+                Price (Rands)
               </label>
               <Input
                 type="number"
-                value={formData.price}
-                onChange={(e) => setFormData(prev => ({ ...prev, price: Number(e.target.value) }))}
+                step="0.01"
                 min="0"
+                value={priceInRands}
+                onChange={handlePriceChange}
+                placeholder="0.00"
                 required
               />
-              <p className="text-xs text-gray-500 mt-1">Enter price in cents (e.g., 15000 for R150.00)</p>
+              <p className="text-xs text-gray-500 mt-1">Enter price in Rands (e.g., 150.00 for R150.00)</p>
             </div>
 
             <div>

@@ -18,25 +18,30 @@ import {
   ChartPieIcon,
   ClipboardDocumentListIcon,
   BuildingOfficeIcon,
-  HeartIcon
+  HeartIcon,
+  CodeBracketIcon
 } from '@heroicons/react/24/outline';
 import UserRoleManager from '../../components/admin/UserRoleManager';
 import CreateAdminForm from '../../components/forms/CreateAdminForm';
 import { elevateCurrentUserToSuperAdmin } from '../../utils/elevateCurrentUser';
+import { useNavigate } from 'react-router-dom';
 
 // Import the new management components
 import { ServicesManagement } from '../../components/admin/ServicesManagement';
 import { CentresManagement } from '../../components/admin/CentresManagement';
 import { ClientsManagement } from '../../components/admin/ClientsManagement';
+import { StaffManagement } from '../../components/admin/StaffManagement';
 import { AdminSetup } from '../../components/admin/AdminSetup';
 import AuditPage from './AuditPage';
-// import { StaffManagement } from '../../components/admin/StaffManagement';
-// import { AppointmentsManagement } from '../../components/admin/AppointmentsManagement';
+import AdminCentreInterface from '../../components/appointments/AdminCentreInterface';
+import ClientAppointmentInterface from '../../components/appointments/ClientAppointmentInterface';
+import SystemLogsViewer from '../../components/admin/SystemLogsViewer';
 
-type AdminSection = 'overview' | 'clients' | 'appointments' | 'services' | 'centres' | 'staff' | 'scans' | 'videos' | 'wellness-plans' | 'reports' | 'settings' | 'audit' | 'site-health';
+type AdminSection = 'overview' | 'clients' | 'appointments' | 'services' | 'centres' | 'staff' | 'scans' | 'videos' | 'wellness-plans' | 'reports' | 'settings' | 'audit' | 'site-health' | 'system-logs';
 
 export function Dashboard() {
   const { profile, loading } = useUserProfile();
+  const navigate = useNavigate();
   const [showUserRoles, setShowUserRoles] = useState(false);
   const [showCreateAdmin, setShowCreateAdmin] = useState(false);
   const [showAdminSetup, setShowAdminSetup] = useState(false);
@@ -46,6 +51,10 @@ export function Dashboard() {
 
   const handleLogout = async () => {
     await signOut(auth);
+  };
+
+  const handleBookAppointment = () => {
+    navigate('/appointments');
   };
 
   if (loading) {
@@ -77,6 +86,7 @@ export function Dashboard() {
     { id: 'wellness-plans', label: 'Wellness Plans', icon: DocumentTextIcon },
     { id: 'reports', label: 'Reports', icon: ChartBarIcon },
     { id: 'settings', label: 'Settings', icon: CogIcon },
+    { id: 'system-logs', label: 'System Logs', icon: CodeBracketIcon },
     ...(profile?.role === 'super-admin' ? [{ id: 'site-health', label: 'Site Health', icon: HeartIcon }] : []),
   ] as const;
 
@@ -98,6 +108,8 @@ export function Dashboard() {
         return profile?.role === 'super-admin' ? <AuditPage /> : null;
       case 'audit':
         return profile?.role === 'super-admin' ? <AuditPage /> : null;
+      case 'system-logs':
+        return renderSystemLogs();
       default:
         return (
           <div className="page-container">
@@ -370,53 +382,21 @@ export function Dashboard() {
   );
 
   const renderStaffManagement = () => (
-    <div className="page-container">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Staff Management</h1>
-          <p className="text-gray-600">Manage team members, qualifications, and schedules</p>
-        </div>
-        <button className="btn btn-primary">
-          <PlusIcon className="w-5 h-5 mr-2" />
-          Add Staff Member
-        </button>
-      </div>
-      
-      <div className="card">
-        <div className="text-center py-12">
-          <UserGroupIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Staff Management</h3>
-          <p className="text-gray-600">Full staff management interface coming soon...</p>
-        </div>
-      </div>
-    </div>
+    <StaffManagement />
   );
 
   const renderAppointmentsManagement = () => (
-    <div className="page-container">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Appointments Management</h1>
-          <p className="text-gray-600">Book, manage, and track appointments</p>
-        </div>
-        <button className="btn btn-primary">
-          <PlusIcon className="w-5 h-5 mr-2" />
-          Book Appointment
-        </button>
-      </div>
-      
-      <div className="card">
-        <div className="text-center py-12">
-          <CalendarDaysIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Appointments Management</h3>
-          <p className="text-gray-600">Full appointments management interface coming soon...</p>
-        </div>
-      </div>
+    <div className="p-0">
+      <ClientAppointmentInterface isAdminMode={true} />
     </div>
   );
 
   const renderClientsManagement = () => (
     <ClientsManagement />
+  );
+
+  const renderSystemLogs = () => (
+    <SystemLogsViewer />
   );
 
   return (

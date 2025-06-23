@@ -58,6 +58,10 @@ export function CentresManagement() {
   const [deletingCentre, setDeletingCentre] = useState<TreatmentCentre | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
 
+  // Staff data for showing assignments
+  const [staffData, setStaffData] = useState<any[]>([]);
+  const [staffLoading, setStaffLoading] = useState(false);
+
   // Load centres from Firebase
   useEffect(() => {
     setLoading(true);
@@ -128,7 +132,7 @@ export function CentresManagement() {
       
       const newCentre = {
         code: `NEW-${Date.now()}`,
-        servicesOffered: [],
+        services: [],
         staffAssigned: [],
         timezone: 'Africa/Johannesburg',
         isActive: true,
@@ -192,6 +196,40 @@ export function CentresManagement() {
     }
   };
 
+  // Load staff data to show assignments
+  const loadStaffData = async () => {
+    setStaffLoading(true);
+    try {
+      const staffRef = collection(db, 'staff');
+      const q = query(staffRef, orderBy('lastName'));
+      const snapshot = await getDocs(q);
+      
+      const staff = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      setStaffData(staff);
+    } catch (error) {
+      console.error('Error loading staff:', error);
+    } finally {
+      setStaffLoading(false);
+    }
+  };
+
+  // Get staff assigned to a centre
+  const getAssignedStaff = (centreName: string) => {
+    return staffData.filter(staff => 
+      staff.centre === centreName || 
+      (staff.workingCentres && staff.workingCentres.includes(centreName))
+    );
+  };
+
+  // Load staff data when component mounts
+  useEffect(() => {
+    loadStaffData();
+  }, []);
+
   // const handleToggleCentreStatus = async (centre: TreatmentCentre) => {
   //   try {
   //     setUpdating(centre.id);
@@ -220,12 +258,36 @@ export function CentresManagement() {
   };
 
   const CentreCard = ({ centre }: { centre: TreatmentCentre }) => (
-    <Card className="hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <div className="flex items-center space-x-2 mb-2">
-            <h3 className="text-lg font-semibold text-gray-900">{centre.name}</h3>
-            <span className={`px-2 py-1 text-xs rounded-full ${
+    <Card className="hover:shadow-lg transition-shadow duration-200">
+      <div className="p-6">
+        <div className="flex justify-between items-start mb-4">
+          <div className="flex-1">
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">{centre.name}</h3>
+            <div className="flex items-center text-gray-600 mb-2">
+              <MapPinIcon className="w-4 h-4 mr-2" />
+              <span className="text-sm">
+                {centre.address.suburb}, {centre.address.city}
+              </span>
+            </div>
+            <div className="flex items-center text-gray-600 mb-2">
+              <PhoneIcon className="w-4 h-4 mr-2" />
+              <span className="text-sm">{centre.contactInfo.phone}</span>
+            </div>
+            <div className="flex items-center text-gray-600 mb-3">
+              <UserIcon className="w-4 h-4 mr-2" />
+              <span className="text-sm">
+                Manager: {centre.contactInfo.managerName}
+              </span>
+            </div>
+            <div className="flex items-center text-gray-600 mb-3">
+              <UserIcon className="w-4 h-4 mr-2" />
+              <span className="text-sm">
+                Staff Assigned: {getAssignedStaff(centre.name).length}
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-col items-end space-y-2">
+            <span className={`px-3 py-1 text-sm rounded-full ${
               centre.isActive 
                 ? 'bg-green-100 text-green-800' 
                 : 'bg-red-100 text-red-800'
@@ -233,81 +295,81 @@ export function CentresManagement() {
               {centre.isActive ? 'Active' : 'Inactive'}
             </span>
           </div>
-          
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-            <div>
-              <div className="flex items-start text-sm text-gray-600 mb-2">
-                <MapPinIcon className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p>{centre.address.street}</p>
-                  <p>{centre.address.suburb}, {centre.address.city}</p>
-                  <p>{centre.address.province} {centre.address.postalCode}</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center text-sm text-gray-600 mb-2">
-                <PhoneIcon className="w-4 h-4 mr-2" />
-                {centre.contactInfo.phone}
-              </div>
-              
-              <div className="flex items-center text-sm text-gray-600">
-                <UserIcon className="w-4 h-4 mr-2" />
-                Manager: {centre.contactInfo.managerName}
+        </div>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+          <div>
+            <div className="flex items-start text-sm text-gray-600 mb-2">
+              <MapPinIcon className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0" />
+              <div>
+                <p>{centre.address.street}</p>
+                <p>{centre.address.suburb}, {centre.address.city}</p>
+                <p>{centre.address.province} {centre.address.postalCode}</p>
               </div>
             </div>
             
-            <div>
-              <div className="flex items-center text-sm text-gray-600 mb-2">
-                <ClockIcon className="w-4 h-4 mr-2" />
-                {formatOperatingHours(centre)}
-              </div>
-              
-              <div className="text-sm text-gray-600 mb-2">
-                <span className="font-medium">Equipment:</span> {centre.facilities.availableEquipment.length} items
-              </div>
-              
-              <div className="text-sm text-gray-600 mb-2">
-                <span className="font-medium">Services:</span> {centre.servicesOffered.length} offered
-              </div>
-              
-              <div className="text-sm text-gray-600">
-                <span className="font-medium">Staff:</span> {centre.staffAssigned.length} assigned
-              </div>
+            <div className="flex items-center text-sm text-gray-600 mb-2">
+              <PhoneIcon className="w-4 h-4 mr-2" />
+              {centre.contactInfo.phone}
+            </div>
+            
+            <div className="flex items-center text-sm text-gray-600">
+              <UserIcon className="w-4 h-4 mr-2" />
+              Manager: {centre.contactInfo.managerName}
             </div>
           </div>
           
-          <div className="flex items-center space-x-4 text-sm text-gray-600">
-            <div className="flex items-center">
-              <span className="font-medium">Capacity:</span>
-              <span className="ml-1">{centre.capacity.maxDailyAppointments}/day</span>
+          <div>
+            <div className="flex items-center text-sm text-gray-600 mb-2">
+              <ClockIcon className="w-4 h-4 mr-2" />
+              {formatOperatingHours(centre)}
             </div>
-            <div className="flex items-center">
-              <span className="font-medium">Concurrent:</span>
-              <span className="ml-1">{centre.capacity.maxConcurrentAppointments}</span>
+            
+            <div className="text-sm text-gray-600 mb-2">
+              <span className="font-medium">Equipment:</span> {centre.facilities.availableEquipment.length} items
+            </div>
+            
+            <div className="text-sm text-gray-600 mb-2">
+              <span className="font-medium">Services:</span> {centre.services?.length || 0} offered
+            </div>
+            
+            <div className="text-sm text-gray-600">
+              <span className="font-medium">Staff:</span> {getAssignedStaff(centre.name).length} assigned
             </div>
           </div>
         </div>
         
-        <div className="flex space-x-2 ml-4">
-          <Button
-            onClick={() => setViewingCentre(centre)}
-            className="btn-secondary text-sm p-2"
-          >
-            <EyeIcon className="w-4 h-4" />
-          </Button>
-          <Button
-            onClick={() => setEditingCentre(centre)}
-            className="btn-primary text-sm p-2"
-          >
-            <PencilIcon className="w-4 h-4" />
-          </Button>
-          <Button
-            onClick={() => setDeletingCentre(centre)}
-            className="btn bg-red-600 text-white hover:bg-red-700 text-sm p-2"
-          >
-            <TrashIcon className="w-4 h-4" />
-          </Button>
+        <div className="flex items-center space-x-4 text-sm text-gray-600">
+          <div className="flex items-center">
+            <span className="font-medium">Capacity:</span>
+            <span className="ml-1">{centre.capacity.maxDailyAppointments}/day</span>
+          </div>
+          <div className="flex items-center">
+            <span className="font-medium">Concurrent:</span>
+            <span className="ml-1">{centre.capacity.maxConcurrentAppointments}</span>
+          </div>
         </div>
+      </div>
+      
+      <div className="flex space-x-2 ml-4 p-4">
+        <Button
+          onClick={() => setViewingCentre(centre)}
+          className="btn-secondary text-sm p-2"
+        >
+          <EyeIcon className="w-4 h-4" />
+        </Button>
+        <Button
+          onClick={() => setEditingCentre(centre)}
+          className="btn-primary text-sm p-2"
+        >
+          <PencilIcon className="w-4 h-4" />
+        </Button>
+        <Button
+          onClick={() => setDeletingCentre(centre)}
+          className="btn bg-red-600 text-white hover:bg-red-700 text-sm p-2"
+        >
+          <TrashIcon className="w-4 h-4" />
+        </Button>
       </div>
     </Card>
   );
@@ -415,6 +477,58 @@ export function CentresManagement() {
                 </div>
               </div>
             </div>
+          </div>
+
+          <div className="mt-6">
+            <h3 className="font-semibold text-gray-900 mb-3">Assigned Staff</h3>
+            {staffLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <LoadingSpinner size="md" />
+              </div>
+            ) : (() => {
+              const assignedStaff = getAssignedStaff(centre.name);
+              return assignedStaff.length > 0 ? (
+                <div className="space-y-3">
+                  {assignedStaff.map((staff: any) => (
+                    <div key={staff.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
+                          <span className="text-primary-600 font-medium text-sm">
+                            {staff.firstName?.[0]}{staff.lastName?.[0]}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">
+                            {staff.firstName} {staff.lastName}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            {staff.position} • {staff.department}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-gray-600">{staff.email}</p>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          staff.status === 'active' 
+                            ? 'text-green-800 bg-green-100' 
+                            : staff.status === 'on-leave'
+                            ? 'text-yellow-800 bg-yellow-100'
+                            : 'text-red-800 bg-red-100'
+                        }`}>
+                          {staff.status === 'on-leave' ? 'On Leave' : 
+                           staff.status?.charAt(0)?.toUpperCase() + staff.status?.slice(1)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <UserIcon className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                  <p>No staff assigned to this centre</p>
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>

@@ -1,16 +1,46 @@
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  PlusIcon,
+  collection, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  serverTimestamp,
+  getDocs,
+  limit
+} from 'firebase/firestore';
+import { 
+  ref, 
+  uploadBytes, 
+  getDownloadURL, 
+  deleteObject 
+} from 'firebase/storage';
+import { db, storage } from '../../lib/firebase';
+import { 
+  PlusIcon, 
+  MagnifyingGlassIcon,
+  UserGroupIcon,
   PencilIcon,
   TrashIcon,
-  EyeIcon,
-  MagnifyingGlassIcon,
-  UserIcon
+  CheckIcon,
+  XMarkIcon,
+  ExclamationTriangleIcon,
+  ArrowPathIcon,
+  LinkIcon,
+  MapPinIcon,
+  PhoneIcon,
+  UserIcon,
+  CameraIcon,
+  PhotoIcon
 } from '@heroicons/react/24/outline';
+import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { Select } from '../ui/Select';
-import { Card } from '../ui/Card';
+import { TextArea } from '../ui/TextArea';
+import LoadingSpinner from '../ui/LoadingSpinner';
 
 interface StaffMember {
   id: string;
@@ -18,568 +48,1200 @@ interface StaffMember {
   lastName: string;
   email: string;
   phone: string;
-  role: 'practitioner' | 'admin' | 'manager' | 'receptionist';
+  position: string;
+  department: string;
   qualifications: string[];
-  assignedCentres: string[];
-  isActive: boolean;
+  specializations: string[];
+  status: 'active' | 'inactive' | 'on-leave';
+  hireDate: Date;
+  centre?: string; // Legacy field for backward compatibility
+  centreIds?: string[]; // New field for multiple centres
+  photoUrl?: string;
+  emergencyContact: {
+    name: string;
+    phone: string;
+    relationship: string;
+  };
+  address: {
+    street: string;
+    city: string;
+    province: string;
+    postalCode: string;
+  };
+  salary?: number;
+  notes?: string;
   createdAt: Date;
   updatedAt: Date;
 }
 
-// Mock data
-const initialStaff: StaffMember[] = [
-  {
-    id: '1',
-    firstName: 'Dr. Sarah',
-    lastName: 'Johnson',
-    email: 'sarah.johnson@lifearrow.co.za',
-    phone: '+27 21 123 4567',
-    role: 'practitioner',
-    qualifications: ['Wellness Consultant', 'Nutritionist'],
-    assignedCentres: ['1'],
-    isActive: true,
-    createdAt: new Date('2024-01-10'),
-    updatedAt: new Date('2024-01-20')
-  },
-  {
-    id: '2',
-    firstName: 'Michael',
-    lastName: 'Smith',
-    email: 'michael.smith@lifearrow.co.za',
-    phone: '+27 11 987 6543',
-    role: 'manager',
-    qualifications: ['Centre Management'],
-    assignedCentres: ['2'],
-    isActive: true,
-    createdAt: new Date('2024-01-05'),
-    updatedAt: new Date('2024-01-18')
-  }
+interface StaffFormData {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  position: string;
+  department: string;
+  qualifications: string;
+  specializations: string;
+  status: 'active' | 'inactive' | 'on-leave';
+  hireDate: string;
+  centre: string; // Keep for legacy compatibility
+  centreIds: string[]; // New field for multiple centres
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  emergencyContactRelationship: string;
+  street: string;
+  city: string;
+  province: string;
+  postalCode: string;
+  salary: string;
+  notes: string;
+}
+
+interface TreatmentCentre {
+  id: string;
+  name: string;
+  code: string;
+  address: {
+    street: string;
+    suburb: string;
+    city: string;
+    province: string;
+    postalCode: string;
+  };
+  contactInfo: {
+    phone: string;
+    email: string;
+    managerName: string;
+  };
+  isActive: boolean;
+  staffAssigned: string[];
+}
+
+const initialFormData: StaffFormData = {
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: '',
+  position: '',
+  department: '',
+  qualifications: '',
+  specializations: '',
+  status: 'active',
+  hireDate: '',
+  centre: '',
+  centreIds: [],
+  emergencyContactName: '',
+  emergencyContactPhone: '',
+  emergencyContactRelationship: '',
+  street: '',
+  city: '',
+  province: '',
+  postalCode: '',
+  salary: '',
+  notes: ''
+};
+
+// Constants for form options
+const positions = [
+  'Doctor', 'Nurse', 'Therapist', 'Wellness Coach', 'Nutritionist', 
+  'Administrative Assistant', 'Manager', 'Receptionist', 'Cleaner', 'Security'
 ];
 
-const ROLES = [
-  { value: 'practitioner', label: 'Practitioner' },
-  { value: 'admin', label: 'Admin' },
-  { value: 'manager', label: 'Manager' },
-  { value: 'receptionist', label: 'Receptionist' }
+const departments = [
+  'Medical', 'Therapy', 'Wellness', 'Nutrition', 'Administration', 
+  'Management', 'Reception', 'Maintenance', 'Security'
+];
+
+const provinces = [
+  'Gauteng', 'Western Cape', 'KwaZulu-Natal', 'Eastern Cape', 
+  'Limpopo', 'Mpumalanga', 'North West', 'Free State', 'Northern Cape'
 ];
 
 export function StaffManagement() {
-  const [staff, setStaff] = useState<StaffMember[]>(initialStaff);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterRole, setFilterRole] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [viewingStaff, setViewingStaff] = useState<StaffMember | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
-  const [deletingStaff, setDeletingStaff] = useState<StaffMember | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const filteredStaff = staff.filter(member => {
-    const matchesSearch = member.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         member.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         member.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRole = filterRole === 'all' || member.role === filterRole;
-    const matchesStatus = filterStatus === 'all' || 
-                         (filterStatus === 'active' && member.isActive) ||
-                         (filterStatus === 'inactive' && !member.isActive);
-    
-    return matchesSearch && matchesRole && matchesStatus;
-  });
+  // Treatment centres lookup state
+  const [showCentresLookup, setShowCentresLookup] = useState(false);
+  const [centres, setCentres] = useState<TreatmentCentre[]>([]);
+  const [centresLoading, setCentresLoading] = useState(false);
+  const [centresError, setCentresError] = useState<string | null>(null);
 
-  const handleCreateStaff = (staffData: Partial<StaffMember>) => {
-    const newStaff: StaffMember = {
-      id: Date.now().toString(),
-      assignedCentres: [],
-      isActive: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      ...staffData
-    } as StaffMember;
+  // Photo upload state
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
 
-    setStaff(prev => [...prev, newStaff]);
-    setIsCreating(false);
-  };
-
-  const handleUpdateStaff = (staffData: Partial<StaffMember>) => {
-    if (!editingStaff) return;
-
-    const updatedStaff = {
-      ...editingStaff,
-      ...staffData,
-      updatedAt: new Date()
-    };
-
-    setStaff(prev => prev.map(member => 
-      member.id === editingStaff.id ? updatedStaff : member
-    ));
-    setEditingStaff(null);
-  };
-
-  const handleDeleteStaff = () => {
-    if (!deletingStaff) return;
-
-    setStaff(prev => prev.filter(member => member.id !== deletingStaff.id));
-    setDeletingStaff(null);
-  };
-
-  const toggleStaffStatus = (staffId: string) => {
-    setStaff(prev => prev.map(member => 
-      member.id === staffId 
-        ? { ...member, isActive: !member.isActive, updatedAt: new Date() }
-        : member
-    ));
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Staff Management</h2>
-          <p className="text-gray-600">Manage your team members and their qualifications</p>
-        </div>
-        <Button
-          onClick={() => setIsCreating(true)}
-          className="flex items-center space-x-2"
-        >
-          <PlusIcon className="w-4 h-4" />
-          <span>Add Staff Member</span>
-        </Button>
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-col lg:flex-row gap-4">
-        <div className="flex-1">
-          <div className="relative">
-            <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-            <Input
-              type="text"
-              placeholder="Search staff..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-        </div>
-        <div className="flex gap-3">
-          <Select
-            value={filterRole}
-            onChange={(value) => setFilterRole(value)}
-            options={[
-              { value: 'all', label: 'All Roles' },
-              ...ROLES
-            ]}
-            className="w-48"
-          />
-          <Select
-            value={filterStatus}
-            onChange={(value) => setFilterStatus(value)}
-            options={[
-              { value: 'all', label: 'All Status' },
-              { value: 'active', label: 'Active' },
-              { value: 'inactive', label: 'Inactive' }
-            ]}
-            className="w-32"
-          />
-        </div>
-      </div>
-
-      {/* Staff Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {filteredStaff.map((member) => (
-          <StaffCard 
-            key={member.id} 
-            member={member}
-            onView={() => setViewingStaff(member)}
-            onEdit={() => setEditingStaff(member)}
-            onDelete={() => setDeletingStaff(member)}
-            onToggleStatus={() => toggleStaffStatus(member.id)}
-          />
-        ))}
-      </div>
-
-      {filteredStaff.length === 0 && (
-        <div className="text-center py-12">
-          <div className="text-gray-400 mb-4">
-            <UserIcon className="w-16 h-16 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900">No staff members found</h3>
-            <p className="text-gray-500">Try adjusting your search or filter criteria</p>
-          </div>
-        </div>
-      )}
-
-      {/* Modals */}
-      {viewingStaff && (
-        <StaffDetailsModal 
-          member={viewingStaff} 
-          onClose={() => setViewingStaff(null)}
-        />
-      )}
-      
-      {(isCreating || editingStaff) && (
-        <StaffFormModal
-          member={editingStaff}
-          onClose={() => {
-            setIsCreating(false);
-            setEditingStaff(null);
-          }}
-          onSubmit={editingStaff ? handleUpdateStaff : handleCreateStaff}
-        />
-      )}
-
-      {deletingStaff && (
-        <DeleteConfirmModal
-          member={deletingStaff}
-          onClose={() => setDeletingStaff(null)}
-          onConfirm={handleDeleteStaff}
-        />
-      )}
-    </div>
-  );
-}
-
-const StaffCard = ({ member, onView, onEdit, onDelete, onToggleStatus }: {
-  member: StaffMember;
-  onView: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-  onToggleStatus: () => void;
-}) => (
-  <Card className="hover:shadow-md transition-shadow">
-    <div className="flex items-start justify-between mb-4">
-      <div className="flex-1">
-        <h3 className="text-lg font-semibold text-gray-900 mb-1">
-          {member.firstName} {member.lastName}
-        </h3>
-        <span className={`inline-block px-2 py-1 text-xs rounded-full ${
-          member.isActive 
-            ? 'bg-green-100 text-green-800' 
-            : 'bg-red-100 text-red-800'
-        }`}>
-          {member.isActive ? 'Active' : 'Inactive'}
-        </span>
-      </div>
-      <div className="flex space-x-1">
-        <button
-          onClick={onView}
-          className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
-        >
-          <EyeIcon className="w-4 h-4" />
-        </button>
-        <button
-          onClick={onEdit}
-          className="p-1 text-gray-400 hover:text-yellow-600 transition-colors"
-        >
-          <PencilIcon className="w-4 h-4" />
-        </button>
-        <button
-          onClick={onDelete}
-          className="p-1 text-gray-400 hover:text-red-600 transition-colors"
-        >
-          <TrashIcon className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-
-    <div className="space-y-2 mb-4 text-sm text-gray-600">
-      <p><span className="font-medium">Role:</span> {member.role}</p>
-      <p><span className="font-medium">Email:</span> {member.email}</p>
-      <p><span className="font-medium">Phone:</span> {member.phone}</p>
-    </div>
-
-    <div className="mb-4">
-      <span className="text-sm font-medium text-gray-700">Qualifications:</span>
-      <div className="flex flex-wrap gap-1 mt-1">
-        {member.qualifications.map((qual, index) => (
-          <span key={index} className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded">
-            {qual}
-          </span>
-        ))}
-      </div>
-    </div>
-
-    <div className="flex space-x-2">
-      <Button
-        onClick={onToggleStatus}
-        variant={member.isActive ? "outline" : "primary"}
-        size="sm"
-        className="flex-1"
-      >
-        {member.isActive ? 'Deactivate' : 'Activate'}
-      </Button>
-      <Button
-        onClick={onEdit}
-        variant="outline"
-        size="sm"
-        className="flex-1"
-      >
-        Edit
-      </Button>
-    </div>
-  </Card>
-);
-
-const StaffDetailsModal = ({ member, onClose }: {
-  member: StaffMember;
-  onClose: () => void;
-}) => (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-    <div className="bg-white rounded-lg max-w-2xl w-full max-h-screen overflow-y-auto">
-      <div className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-gray-900">
-            {member.firstName} {member.lastName}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-6">
-            <div>
-              <label className="text-sm font-medium text-gray-700">Role</label>
-              <p className="mt-1 text-gray-900 capitalize">{member.role}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-700">Status</label>
-              <p className="mt-1">
-                <span className={`px-2 py-1 text-xs rounded-full ${
-                  member.isActive 
-                    ? 'bg-green-100 text-green-800' 
-                    : 'bg-red-100 text-red-800'
-                }`}>
-                  {member.isActive ? 'Active' : 'Inactive'}
-                </span>
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-6">
-            <div>
-              <label className="text-sm font-medium text-gray-700">Email</label>
-              <p className="mt-1 text-gray-900">{member.email}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-700">Phone</label>
-              <p className="mt-1 text-gray-900">{member.phone}</p>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-gray-700">Qualifications</label>
-            <div className="mt-1 flex flex-wrap gap-1">
-              {member.qualifications.map((qual, index) => (
-                <span key={index} className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded">
-                  {qual}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-gray-700">Assigned Centres</label>
-            <p className="mt-1 text-gray-900">
-              {member.assignedCentres.length} centre(s) assigned
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end">
-          <Button onClick={onClose}>Close</Button>
-        </div>
-      </div>
-    </div>
-  </div>
-);
-
-const StaffFormModal = ({ member, onClose, onSubmit }: {
-  member?: StaffMember | null;
-  onClose: () => void;
-  onSubmit: (data: Partial<StaffMember>) => void;
-}) => {
+  // Form data state
   const [formData, setFormData] = useState({
-    firstName: member?.firstName || '',
-    lastName: member?.lastName || '',
-    email: member?.email || '',
-    phone: member?.phone || '',
-    role: member?.role || 'practitioner',
-    qualifications: member?.qualifications || []
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    position: '',
+    department: '',
+    qualifications: '',
+    specializations: '',
+    status: 'active' as 'active' | 'inactive' | 'on-leave',
+    hireDate: '',
+    centre: '',
+    centreIds: [],
+    emergencyContactName: '',
+    emergencyContactPhone: '',
+    emergencyContactRelationship: '',
+    street: '',
+    city: '',
+    province: '',
+    postalCode: '',
+    salary: '',
+    notes: ''
   });
 
-  const [newQualification, setNewQualification] = useState('');
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit(formData);
+  // Reset form data
+  const resetFormData = () => {
+    setFormData({
+      firstName: '',
+      lastName: '',
+      email: '',
+      phone: '',
+      position: '',
+      department: '',
+      qualifications: '',
+      specializations: '',
+      status: 'active',
+      hireDate: '',
+      centre: '',
+      centreIds: [],
+      emergencyContactName: '',
+      emergencyContactPhone: '',
+      emergencyContactRelationship: '',
+      street: '',
+      city: '',
+      province: '',
+      postalCode: '',
+      salary: '',
+      notes: ''
+    });
   };
 
-  const addQualification = () => {
-    if (newQualification.trim()) {
-      setFormData(prev => ({
-        ...prev,
-        qualifications: [...prev.qualifications, newQualification.trim()]
-      }));
-      setNewQualification('');
+  // Handle form input changes
+  const handleInputChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Handle form submission
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setUploadingPhoto(!!photoFile);
+
+    try {
+      const staffData = {
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        email: formData.email.trim().toLowerCase(),
+        phone: formData.phone.trim(),
+        position: formData.position,
+        department: formData.department,
+        qualifications: formData.qualifications.split(',').map(q => q.trim()).filter(q => q),
+        specializations: formData.specializations.split(',').map(s => s.trim()).filter(s => s),
+        status: formData.status,
+        hireDate: new Date(formData.hireDate),
+        centre: formData.centre || null,
+        centreIds: formData.centreIds,
+        emergencyContact: {
+          name: formData.emergencyContactName.trim(),
+          phone: formData.emergencyContactPhone.trim(),
+          relationship: formData.emergencyContactRelationship.trim()
+        },
+        address: {
+          street: formData.street.trim(),
+          city: formData.city.trim(),
+          province: formData.province,
+          postalCode: formData.postalCode.trim()
+        },
+        salary: formData.salary ? parseFloat(formData.salary) : null,
+        notes: formData.notes.trim() || null,
+        updatedAt: serverTimestamp()
+      };
+
+      let staffId: string;
+      let photoUrl = '';
+
+      if (editingStaff) {
+        staffId = editingStaff.id;
+        photoUrl = editingStaff.photoUrl || '';
+        
+        // Upload new photo if selected
+        if (photoFile) {
+          photoUrl = await uploadPhoto(photoFile, staffId);
+        }
+        
+        await updateDoc(doc(db, 'staff', staffId), {
+          ...staffData,
+          ...(photoUrl && { photoUrl })
+        });
+      } else {
+        // Create new staff member first to get ID
+        const docRef = await addDoc(collection(db, 'staff'), {
+          ...staffData,
+          createdAt: serverTimestamp()
+        });
+        staffId = docRef.id;
+        
+        // Upload photo if selected
+        if (photoFile) {
+          photoUrl = await uploadPhoto(photoFile, staffId);
+          await updateDoc(doc(db, 'staff', staffId), { photoUrl });
+        }
+      }
+
+      resetFormData();
+      setShowAddForm(false);
+      setEditingStaff(null);
+      removePhoto();
+    } catch (error) {
+      console.error('Error saving staff member:', error);
+      setError('Failed to save staff member. Please try again.');
+    } finally {
+      setSubmitting(false);
+      setUploadingPhoto(false);
     }
   };
 
-  const removeQualification = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      qualifications: prev.qualifications.filter((_, i) => i !== index)
-    }));
+  // Handle edit
+  const handleEdit = (member: StaffMember) => {
+    setEditingStaff(member);
+    setFormData({
+      firstName: member.firstName,
+      lastName: member.lastName,
+      email: member.email,
+      phone: member.phone,
+      position: member.position,
+      department: member.department,
+      qualifications: member.qualifications.join(', '),
+      specializations: member.specializations.join(', '),
+      status: member.status,
+      hireDate: member.hireDate.toISOString().split('T')[0],
+      centre: member.centre || '',
+      centreIds: member.centreIds || [],
+      emergencyContactName: member.emergencyContact?.name || '',
+      emergencyContactPhone: member.emergencyContact?.phone || '',
+      emergencyContactRelationship: member.emergencyContact?.relationship || '',
+      street: member.address?.street || '',
+      city: member.address?.city || '',
+      province: member.address?.province || '',
+      postalCode: member.address?.postalCode || '',
+      salary: member.salary?.toString() || '',
+      notes: member.notes || ''
+    });
+    setShowAddForm(true);
   };
 
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg max-w-2xl w-full max-h-screen overflow-y-auto">
-        <form onSubmit={handleSubmit} className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-gray-900">
-              {member ? 'Edit Staff Member' : 'Add New Staff Member'}
-            </h2>
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              ✕
-            </button>
-          </div>
+  // Load staff data from Firebase
+  useEffect(() => {
+    const loadStaff = () => {
+      try {
+        const staffRef = collection(db, 'staff');
+        const q = query(staffRef, orderBy('lastName'), limit(100));
+        
+        const unsubscribe = onSnapshot(q, 
+          (snapshot) => {
+            const staffData = snapshot.docs.map(doc => {
+              const data = doc.data();
+              return {
+                id: doc.id,
+                ...data,
+                hireDate: data.hireDate?.toDate() || new Date(),
+                createdAt: data.createdAt?.toDate() || new Date(),
+                updatedAt: data.updatedAt?.toDate() || new Date(),
+                qualifications: data.qualifications || [],
+                specializations: data.specializations || []
+              } as StaffMember;
+            });
+            setStaff(staffData);
+            setLoading(false);
+            setError(null);
+          },
+          (error) => {
+            console.error('Error loading staff:', error);
+            // Fallback to one-time fetch
+            getDocs(q).then(snapshot => {
+              const staffData = snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                  id: doc.id,
+                  ...data,
+                  hireDate: data.hireDate?.toDate() || new Date(),
+                  createdAt: data.createdAt?.toDate() || new Date(),
+                  updatedAt: data.updatedAt?.toDate() || new Date(),
+                  qualifications: data.qualifications || [],
+                  specializations: data.specializations || []
+                } as StaffMember;
+              });
+              setStaff(staffData);
+              setLoading(false);
+              setError(null);
+            }).catch(err => {
+              console.error('Fallback fetch failed:', err);
+              setError('Unable to load staff data. Please check your connection and try again.');
+              setLoading(false);
+            });
+          }
+        );
 
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  First Name
-                </label>
-                <Input
-                  type="text"
-                  value={formData.firstName}
-                  onChange={(e) => setFormData(prev => ({ ...prev, firstName: e.target.value }))}
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Last Name
-                </label>
-                <Input
-                  type="text"
-                  value={formData.lastName}
-                  onChange={(e) => setFormData(prev => ({ ...prev, lastName: e.target.value }))}
-                  required
-                />
-              </div>
-            </div>
+        return unsubscribe;
+      } catch (error) {
+        console.error('Error setting up staff listener:', error);
+        setError('Unable to connect to the database. Please try again.');
+        setLoading(false);
+      }
+    };
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Email Address
-              </label>
-              <Input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                required
-              />
-            </div>
+    const unsubscribe = loadStaff();
+    return () => unsubscribe && unsubscribe();
+  }, []);
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Phone Number
-              </label>
-              <Input
-                type="tel"
-                value={formData.phone}
-                onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                required
-              />
-            </div>
+  // Filter staff
+  const filteredStaff = staff.filter((member: StaffMember) => {
+    const matchesSearch = 
+      member.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      member.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      member.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      member.phone.includes(searchTerm) ||
+      member.position.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      member.department.toLowerCase().includes(searchTerm.toLowerCase());
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Role
-              </label>
-              <Select
-                value={formData.role}
-                onChange={(value) => setFormData(prev => ({ ...prev, role: value as StaffMember['role'] }))}
-                options={ROLES}
-                required
-              />
-            </div>
+    return matchesSearch;
+  });
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Qualifications
-              </label>
-              <div className="flex gap-2 mb-2">
-                <Input
-                  type="text"
-                  value={newQualification}
-                  onChange={(e) => setNewQualification(e.target.value)}
-                  placeholder="Add qualification"
-                  className="flex-1"
-                />
-                <Button type="button" onClick={addQualification} size="sm">
-                  Add
-                </Button>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {formData.qualifications.map((qual, index) => (
-                  <span key={index} className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded flex items-center gap-1">
-                    {qual}
-                    <button
-                      type="button"
-                      onClick={() => removeQualification(index)}
-                      className="text-blue-600 hover:text-blue-800"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
+  const handleStatusToggle = async (member: StaffMember) => {
+    const newStatus = member.status === 'active' ? 'inactive' : 'active';
+    
+    try {
+      await updateDoc(doc(db, 'staff', member.id), {
+        status: newStatus,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error updating staff status:', error);
+      setError('Failed to update staff status. Please try again.');
+    }
+  };
 
-          <div className="mt-6 flex justify-end space-x-3">
-            <Button type="button" onClick={onClose} variant="outline">
-              Cancel
-            </Button>
-            <Button type="submit">
-              {member ? 'Update Staff Member' : 'Add Staff Member'}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this staff member?')) return;
 
-const DeleteConfirmModal = ({ member, onClose, onConfirm }: {
-  member: StaffMember;
-  onClose: () => void;
-  onConfirm: () => void;
-}) => (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-    <div className="bg-white rounded-lg max-w-md w-full">
-      <div className="p-6">
-        <h2 className="text-lg font-bold text-gray-900 mb-4">Delete Staff Member</h2>
-        <p className="text-gray-600 mb-6">
-          Are you sure you want to delete "{member.firstName} {member.lastName}"? This action cannot be undone.
-        </p>
-        <div className="flex justify-end space-x-3">
-          <Button onClick={onClose} variant="outline">
-            Cancel
-          </Button>
-          <Button onClick={onConfirm} variant="primary" className="bg-red-600 hover:bg-red-700">
-            Delete
-          </Button>
+    try {
+      await deleteDoc(doc(db, 'staff', id));
+    } catch (error) {
+      console.error('Error deleting staff member:', error);
+      setError('Failed to delete staff member. Please try again.');
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'active': return 'text-green-800 bg-green-100';
+      case 'inactive': return 'text-red-800 bg-red-100';
+      case 'on-leave': return 'text-yellow-800 bg-yellow-100';
+      default: return 'text-gray-800 bg-gray-100';
+    }
+  };
+
+  // Load treatment centres for lookup
+  const loadCentres = async () => {
+    setCentresLoading(true);
+    setCentresError(null);
+    
+    try {
+      const centresRef = collection(db, 'centres');
+      const q = query(centresRef, orderBy('name'));
+      const snapshot = await getDocs(q);
+      
+      const centresData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as TreatmentCentre[];
+      
+      setCentres(centresData);
+    } catch (error) {
+      console.error('Error loading centres:', error);
+      setCentresError('Failed to load treatment centres');
+    } finally {
+      setCentresLoading(false);
+    }
+  };
+
+  // Handle centre selection
+  const handleCentreSelect = (centre: TreatmentCentre) => {
+    setFormData(prev => ({ ...prev, centre: centre.name, centreIds: centre.staffAssigned }));
+    setShowCentresLookup(false);
+  };
+
+  // Photo upload functions
+  const handlePhotoSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        setError('Photo size must be less than 5MB');
+        return;
+      }
+      
+      if (!file.type.startsWith('image/')) {
+        setError('Please select a valid image file');
+        return;
+      }
+
+      setPhotoFile(file);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setPhotoPreview(e.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleCameraCapture = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      setShowCamera(true);
+      // Store the stream for the camera modal
+      (window as any).cameraStream = stream;
+    } catch (error) {
+      console.error('Camera access denied:', error);
+      setError('Camera access denied. Please use file upload instead.');
+    }
+  };
+
+  const capturePhoto = () => {
+    const video = document.getElementById('camera-video') as HTMLVideoElement;
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    
+    if (video && context) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0);
+      
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+          setPhotoFile(file);
+          
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            setPhotoPreview(e.target?.result as string);
+          };
+          reader.readAsDataURL(file);
+          
+          closeCameraModal();
+        }
+      }, 'image/jpeg', 0.8);
+    }
+  };
+
+  const closeCameraModal = () => {
+    const stream = (window as any).cameraStream;
+    if (stream) {
+      stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+      delete (window as any).cameraStream;
+    }
+    setShowCamera(false);
+  };
+
+  const uploadPhoto = async (file: File, staffId: string): Promise<string> => {
+    const photoRef = ref(storage, `staff/${staffId}/photo_${Date.now()}`);
+    await uploadBytes(photoRef, file);
+    return await getDownloadURL(photoRef);
+  };
+
+  const removePhoto = () => {
+    setPhotoFile(null);
+    setPhotoPreview(null);
+  };
+
+  const statusCounts = {
+    active: staff.filter(s => s.status === 'active').length,
+    inactive: staff.filter(s => s.status === 'inactive').length,
+    onLeave: staff.filter(s => s.status === 'on-leave').length
+  };
+
+  if (loading) {
+    return (
+      <div className="page-container">
+        <div className="flex items-center justify-center py-12">
+          <LoadingSpinner size="lg" />
         </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="page-container">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Staff Management</h1>
+          <p className="text-gray-600">Manage team members, qualifications, and schedules</p>
+        </div>
+        <Button 
+          onClick={() => {
+            setEditingStaff(null);
+            resetFormData();
+            setShowAddForm(true);
+          }}
+          className="bg-primary-600 hover:bg-primary-700"
+        >
+          <PlusIcon className="w-5 h-5 mr-2" />
+          Add Staff Member
+        </Button>
+      </div>
+
+      {/* Error Display */}
+      {error && (
+        <Card className="mb-6 border-red-200 bg-red-50">
+          <div className="flex items-center">
+            <ExclamationTriangleIcon className="w-5 h-5 text-red-500 mr-2" />
+            <span className="text-red-700">{error}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setError(null)}
+              className="ml-auto text-red-500 hover:text-red-700"
+            >
+              <XMarkIcon className="w-4 h-4" />
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Search */}
+      <Card className="mb-6">
+        <div className="relative">
+          <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+          <Input
+            type="text"
+            placeholder="Search staff by name, email, phone, position..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+      </Card>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <Card>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-gray-900">{staff.length}</p>
+            <p className="text-sm text-gray-600">Total Staff</p>
+          </div>
+        </Card>
+        <Card>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-green-600">{statusCounts.active}</p>
+            <p className="text-sm text-gray-600">Active</p>
+          </div>
+        </Card>
+        <Card>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-yellow-600">{statusCounts.onLeave}</p>
+            <p className="text-sm text-gray-600">On Leave</p>
+          </div>
+        </Card>
+        <Card>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-red-600">{statusCounts.inactive}</p>
+            <p className="text-sm text-gray-600">Inactive</p>
+          </div>
+        </Card>
+      </div>
+
+      {/* Staff List */}
+      <div className="space-y-4">
+        <p className="text-sm text-gray-600">
+          Showing {filteredStaff.length} of {staff.length} staff members
+        </p>
+
+        {filteredStaff.length === 0 ? (
+          <Card>
+            <div className="text-center py-12">
+              <UserGroupIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No staff found</h3>
+              <p className="text-gray-600">No staff members match the current search.</p>
+            </div>
+          </Card>
+        ) : (
+          filteredStaff.map((member) => (
+            <Card key={member.id} className="hover:shadow-md transition-shadow">
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-12 h-12 rounded-full overflow-hidden">
+                        {member.photoUrl ? (
+                          <img
+                            src={member.photoUrl}
+                            alt={`${member.firstName} ${member.lastName}`}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-primary-100 flex items-center justify-center">
+                            <span className="text-primary-600 font-medium">
+                              {member.firstName[0]}{member.lastName[0]}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          {member.firstName} {member.lastName}
+                        </h3>
+                        <p className="text-gray-600">{member.position} • {member.department}</p>
+                      </div>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(member.status)}`}>
+                      {member.status === 'on-leave' ? 'On Leave' : member.status.charAt(0).toUpperCase() + member.status.slice(1)}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600 mb-4">
+                    <div>
+                      <strong>Email:</strong> {member.email}
+                    </div>
+                    <div>
+                      <strong>Phone:</strong> {member.phone}
+                    </div>
+                    <div>
+                      <strong>Hire Date:</strong> {member.hireDate.toLocaleDateString()}
+                    </div>
+                  </div>
+
+                  {member.qualifications.length > 0 && (
+                    <div className="mb-2">
+                      <strong className="text-gray-700">Qualifications:</strong>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {member.qualifications.map((qual: string, index: number) => (
+                          <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                            {qual}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col space-y-2 ml-4">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleEdit(member)}
+                  >
+                    <PencilIcon className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleStatusToggle(member)}
+                    className={member.status === 'active' ? 'text-red-600 hover:text-red-700' : 'text-green-600 hover:text-green-700'}
+                  >
+                    {member.status === 'active' ? 'Deactivate' : 'Activate'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDelete(member.id)}
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    <TrashIcon className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))
+        )}
+      </div>
+
+      {/* Add/Edit Staff Form Modal */}
+      {showAddForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-gray-900">
+                  {editingStaff ? 'Edit Staff Member' : 'Add New Staff Member'}
+                </h2>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setShowAddForm(false);
+                    setEditingStaff(null);
+                    resetFormData();
+                  }}
+                >
+                  <XMarkIcon className="w-6 h-6" />
+                </Button>
+              </div>
+
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Personal Information */}
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Personal Information</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input
+                      label="First Name"
+                      value={formData.firstName}
+                      onChange={(e) => handleInputChange('firstName', e.target.value)}
+                      required
+                    />
+                    <Input
+                      label="Last Name"
+                      value={formData.lastName}
+                      onChange={(e) => handleInputChange('lastName', e.target.value)}
+                      required
+                    />
+                    <Input
+                      label="Email"
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) => handleInputChange('email', e.target.value)}
+                      required
+                    />
+                    <Input
+                      label="Phone"
+                      value={formData.phone}
+                      onChange={(e) => handleInputChange('phone', e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Photo Upload Section */}
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Profile Photo</h3>
+                  <div className="flex items-center space-x-4">
+                    {/* Photo Preview */}
+                    <div className="relative">
+                      {photoPreview || (editingStaff?.photoUrl) ? (
+                        <div className="relative">
+                          <img
+                            src={photoPreview || editingStaff?.photoUrl}
+                            alt="Profile preview"
+                            className="w-24 h-24 rounded-full object-cover border-2 border-gray-300"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={removePhoto}
+                            className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white p-0"
+                          >
+                            <XMarkIcon className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="w-24 h-24 rounded-full bg-gray-200 border-2 border-dashed border-gray-300 flex items-center justify-center">
+                          <UserIcon className="w-8 h-8 text-gray-400" />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Upload Buttons */}
+                    <div className="flex flex-col space-y-2">
+                      <input
+                        id="photo-input"
+                        type="file"
+                        accept="image/*"
+                        onChange={handlePhotoSelect}
+                        className="hidden"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => document.getElementById('photo-input')?.click()}
+                        disabled={uploadingPhoto}
+                      >
+                        <PhotoIcon className="w-4 h-4 mr-2" />
+                        Upload Photo
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCameraCapture}
+                        disabled={uploadingPhoto}
+                      >
+                        <CameraIcon className="w-4 h-4 mr-2" />
+                        Take Photo
+                      </Button>
+                      {uploadingPhoto && (
+                        <div className="flex items-center text-sm text-gray-600">
+                          <ArrowPathIcon className="w-4 h-4 mr-2 animate-spin" />
+                          Uploading...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Maximum file size: 5MB. Supported formats: JPG, PNG, GIF
+                  </p>
+                </div>
+
+                {/* Professional Information */}
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Professional Information</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Position</label>
+                      <select
+                        value={formData.position}
+                        onChange={(e) => handleInputChange('position', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                        required
+                      >
+                        <option value="">Select Position</option>
+                        {positions.map(pos => (
+                          <option key={pos} value={pos}>{pos}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Department</label>
+                      <select
+                        value={formData.department}
+                        onChange={(e) => handleInputChange('department', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                        required
+                      >
+                        <option value="">Select Department</option>
+                        {departments.map(dept => (
+                          <option key={dept} value={dept}>{dept}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <Input
+                      label="Hire Date"
+                      type="date"
+                      value={formData.hireDate}
+                      onChange={(e) => handleInputChange('hireDate', e.target.value)}
+                      required
+                    />
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                      <select
+                        value={formData.status}
+                        onChange={(e) => handleInputChange('status', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                        required
+                      >
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="on-leave">On Leave</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    <Input
+                      label="Qualifications (comma-separated)"
+                      value={formData.qualifications}
+                      onChange={(e) => handleInputChange('qualifications', e.target.value)}
+                      placeholder="e.g. MD, PhD, RN"
+                    />
+                    <Input
+                      label="Specializations (comma-separated)"
+                      value={formData.specializations}
+                      onChange={(e) => handleInputChange('specializations', e.target.value)}
+                      placeholder="e.g. Cardiology, Pediatrics"
+                    />
+                  </div>
+                </div>
+
+                {/* Address Information */}
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Address Information</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input
+                      label="Street Address"
+                      value={formData.street}
+                      onChange={(e) => handleInputChange('street', e.target.value)}
+                    />
+                    <Input
+                      label="City"
+                      value={formData.city}
+                      onChange={(e) => handleInputChange('city', e.target.value)}
+                    />
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Province</label>
+                      <select
+                        value={formData.province}
+                        onChange={(e) => handleInputChange('province', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                      >
+                        <option value="">Select Province</option>
+                        {provinces.map(province => (
+                          <option key={province} value={province}>{province}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <Input
+                      label="Postal Code"
+                      value={formData.postalCode}
+                      onChange={(e) => handleInputChange('postalCode', e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Emergency Contact */}
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Emergency Contact</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Input
+                      label="Contact Name"
+                      value={formData.emergencyContactName}
+                      onChange={(e) => handleInputChange('emergencyContactName', e.target.value)}
+                    />
+                    <Input
+                      label="Contact Phone"
+                      value={formData.emergencyContactPhone}
+                      onChange={(e) => handleInputChange('emergencyContactPhone', e.target.value)}
+                    />
+                    <Input
+                      label="Relationship"
+                      value={formData.emergencyContactRelationship}
+                      onChange={(e) => handleInputChange('emergencyContactRelationship', e.target.value)}
+                      placeholder="e.g. Spouse, Parent, Sibling"
+                    />
+                  </div>
+                </div>
+
+                {/* Additional Information */}
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Additional Information</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Treatment Centre</label>
+                      <div className="flex space-x-2">
+                        <Input
+                          value={formData.centre}
+                          onChange={(e) => handleInputChange('centre', e.target.value)}
+                          placeholder="Optional: Assigned treatment centre"
+                          className="flex-1"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setShowCentresLookup(true);
+                            loadCentres();
+                          }}
+                          className="px-3"
+                          title="Browse Treatment Centres"
+                        >
+                          <LinkIcon className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <Input
+                      label="Salary (Optional)"
+                      type="number"
+                      value={formData.salary}
+                      onChange={(e) => handleInputChange('salary', e.target.value)}
+                      placeholder="Monthly salary in ZAR"
+                    />
+                  </div>
+                  <TextArea
+                    label="Notes"
+                    value={formData.notes}
+                    onChange={(e) => handleInputChange('notes', e.target.value)}
+                    placeholder="Additional notes about this staff member"
+                    rows={3}
+                    className="mt-4"
+                  />
+                </div>
+
+                {/* Form Actions */}
+                <div className="flex justify-end space-x-3 pt-6 border-t">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setShowAddForm(false);
+                      setEditingStaff(null);
+                      resetFormData();
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={submitting}
+                    className="bg-primary-600 hover:bg-primary-700"
+                  >
+                    {submitting ? (
+                      <>
+                        <ArrowPathIcon className="w-4 h-4 mr-2 animate-spin" />
+                        {editingStaff ? 'Updating...' : 'Adding...'}
+                      </>
+                    ) : (
+                      <>
+                        <CheckIcon className="w-4 h-4 mr-2" />
+                        {editingStaff ? 'Update Staff Member' : 'Add Staff Member'}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Treatment Centres Lookup Modal */}
+      {showCentresLookup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-gray-900">Select Treatment Centre</h2>
+                <Button variant="ghost" onClick={() => setShowCentresLookup(false)}>
+                  <XMarkIcon className="w-6 h-6" />
+                </Button>
+              </div>
+
+              {centresLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <LoadingSpinner size="lg" />
+                </div>
+              ) : centresError ? (
+                <div className="text-center py-12">
+                  <ExclamationTriangleIcon className="w-16 h-16 text-red-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">Error Loading Centres</h3>
+                  <p className="text-gray-600 mb-4">{centresError}</p>
+                  <Button onClick={loadCentres}>Try Again</Button>
+                </div>
+              ) : centres.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="text-gray-400 mb-4">No treatment centres found</div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {centres.map((centre) => (
+                    <Card key={centre.id} className="hover:shadow-md transition-shadow cursor-pointer">
+                      <div 
+                        className="p-4"
+                        onClick={() => handleCentreSelect(centre)}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                              {centre.name}
+                            </h3>
+                            <div className="text-sm text-gray-600 space-y-1">
+                              <div className="flex items-center">
+                                <MapPinIcon className="w-4 h-4 mr-2" />
+                                {centre.address.street}, {centre.address.suburb}, {centre.address.city}
+                              </div>
+                              <div className="flex items-center">
+                                <PhoneIcon className="w-4 h-4 mr-2" />
+                                {centre.contactInfo.phone}
+                              </div>
+                              <div className="flex items-center">
+                                <UserIcon className="w-4 h-4 mr-2" />
+                                Manager: {centre.contactInfo.managerName}
+                              </div>
+                              {centre.staffAssigned && centre.staffAssigned.length > 0 && (
+                                <div className="mt-2">
+                                  <span className="text-xs font-medium text-gray-500">
+                                    Staff Assigned: {centre.staffAssigned.length}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="ml-4">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              centre.isActive 
+                                ? 'text-green-800 bg-green-100' 
+                                : 'text-red-800 bg-red-100'
+                            }`}>
+                              {centre.isActive ? 'Active' : 'Inactive'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Camera Modal */}
+      {showCamera && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-md w-full">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-gray-900">Take Photo</h2>
+                <Button variant="ghost" onClick={closeCameraModal}>
+                  <XMarkIcon className="w-6 h-6" />
+                </Button>
+              </div>
+
+              <div className="space-y-4">
+                {/* Video Preview */}
+                <div className="relative bg-gray-900 rounded-lg overflow-hidden">
+                  <video
+                    id="camera-video"
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-64 object-cover"
+                    ref={(video) => {
+                      if (video && (window as any).cameraStream) {
+                        video.srcObject = (window as any).cameraStream;
+                      }
+                    }}
+                  />
+                  
+                  {/* Capture Overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-48 h-48 border-2 border-white rounded-full opacity-50"></div>
+                  </div>
+                </div>
+
+                {/* Camera Controls */}
+                <div className="flex justify-center space-x-4">
+                  <Button
+                    variant="outline"
+                    onClick={closeCameraModal}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={capturePhoto}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    <CameraIcon className="w-5 h-5 mr-2" />
+                    Capture Photo
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
-  </div>
-); 
+  );
+} 
