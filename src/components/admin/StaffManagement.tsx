@@ -116,21 +116,31 @@ interface StaffFormData {
 interface TreatmentCentre {
   id: string;
   name: string;
-  code: string;
   address: {
     street: string;
     suburb: string;
     city: string;
     province: string;
     postalCode: string;
+    country: string;
+    coordinates: { lat: number; lng: number };
   };
-  contactInfo: {
-    phone: string;
-    email: string;
-    managerName: string;
+  adminIds: string[];
+  staffIds: string[];
+  services: string[];
+  equipment: string[];
+  operatingHours: {
+    [day: string]: { open: string; close: string; closed?: boolean };
   };
+  timezone: string;
   isActive: boolean;
-  staffAssigned: string[];
+  phone?: string;
+  email?: string;
+  description?: string;
+  images?: string[];
+  rating?: number;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const initialFormData: StaffFormData = {
@@ -178,6 +188,7 @@ export function StaffManagement() {
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
@@ -259,6 +270,13 @@ export function StaffManagement() {
   // Handle form input changes
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Photo upload utility function
+  const uploadPhoto = async (file: File, staffId: string): Promise<string> => {
+    const photoRef = ref(storage, `staff/${staffId}/photo_${Date.now()}`);
+    await uploadBytes(photoRef, file);
+    return await getDownloadURL(photoRef);
   };
 
   // Handle form submission
@@ -434,6 +452,29 @@ export function StaffManagement() {
     return () => unsubscribe && unsubscribe();
   }, []);
 
+  // Load centres on component mount for displaying centre names
+  useEffect(() => {
+    const loadCentresData = async () => {
+      try {
+        const centresRef = collection(db, 'centres');
+        const q = query(centresRef, orderBy('name'));
+        const snapshot = await getDocs(q);
+        
+        const centresData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as TreatmentCentre[];
+        
+        setCentres(centresData);
+      } catch (error) {
+        console.error('Error loading centres for display:', error);
+        // Don't set error for this as it's not critical for basic functionality
+      }
+    };
+
+    loadCentresData();
+  }, []);
+
   // Filter staff
   const filteredStaff = staff.filter((member: StaffMember) => {
     const matchesSearch = 
@@ -592,12 +633,6 @@ export function StaffManagement() {
       delete (window as any).cameraStream;
     }
     setShowCamera(false);
-  };
-
-  const uploadPhoto = async (file: File, staffId: string): Promise<string> => {
-    const photoRef = ref(storage, `staff/${staffId}/photo_${Date.now()}`);
-    await uploadBytes(photoRef, file);
-    return await getDownloadURL(photoRef);
   };
 
   const removePhoto = () => {
@@ -1470,11 +1505,7 @@ export function StaffManagement() {
                                 </div>
                                 <div className="flex items-center">
                                   <PhoneIcon className="w-4 h-4 mr-2" />
-                                  {centre.contactInfo.phone}
-                                </div>
-                                <div className="flex items-center">
-                                  <UserIcon className="w-4 h-4 mr-2" />
-                                  Manager: {centre.contactInfo.managerName}
+                                  {centre.phone}
                                 </div>
                               </div>
                             </div>

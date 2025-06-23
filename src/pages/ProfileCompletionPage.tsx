@@ -9,5 +9,5 @@ export default function ProfileCompletionPage() {
     navigate('/client/dashboard', { replace: true });
   };
 
-  return <ProfileCompletionForm onComplete={handleCompletion} />;
+  return <ProfileCompletionForm onSuccess={handleCompletion} />;
 } 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   CalendarDaysIcon, 
@@ -6,32 +6,28 @@ import {
   Squares2X2Icon,
   FunnelIcon,
   PlusIcon,
-  UserGroupIcon,
   BuildingOfficeIcon,
   UserIcon,
-  ClockIcon,
   MagnifyingGlassIcon,
   EyeIcon,
   PencilIcon,
-  TrashIcon,
-  AdjustmentsHorizontalIcon,
   ChevronDownIcon,
   ArrowPathIcon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { collection, query, orderBy, where, getDocs, limit, addDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, where, getDocs, addDoc, Timestamp, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase';
-import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isFuture, addHours, addDays } from 'date-fns';
+import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addHours } from 'date-fns';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Modal } from '../ui/Modal';
-import { Input } from '../ui/Input';
 import { TextArea } from '../ui/TextArea';
 import Select from '../ui/Select';
 import { formatPrice } from '../../lib/utils';
 import { useAppointmentActions } from '../../hooks/useOptimisticBooking';
+import { useUserProfile } from '../../hooks/useUserProfile';
 import type { Appointment, TreatmentCentre, StaffMember, ServiceManagement } from '../../types';
 
 type ViewMode = 'calendar' | 'list' | 'grid';
@@ -51,11 +47,15 @@ interface Client {
 interface SuperAdminSystemInterfaceProps {
   preSelectedClientId?: string;
   preSelectedClientName?: string;
+  editAppointment?: Appointment;
+  onClose?: () => void;
 }
 
 const SuperAdminSystemInterface = ({ 
   preSelectedClientId, 
-  preSelectedClientName 
+  preSelectedClientName,
+  editAppointment,
+  onClose
 }: SuperAdminSystemInterfaceProps) => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -93,7 +93,7 @@ const SuperAdminSystemInterface = ({
   // Edit/Reschedule appointment state
   const [showEditModal, setShowEditModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(editAppointment || null);
   const [cancelReason, setCancelReason] = useState('');
   const [editFormData, setEditFormData] = useState({
     centreId: '',
@@ -106,6 +106,15 @@ const SuperAdminSystemInterface = ({
 
   // Get appointment actions
   const { cancelAppointment, rescheduleAppointment } = useAppointmentActions();
+
+  // Auto-open edit modal when editAppointment is provided
+  useEffect(() => {
+    if (editAppointment) {
+      setSelectedAppointment(editAppointment);
+      setShowEditModal(true);
+      handleEditAppointment(editAppointment);
+    }
+  }, [editAppointment]);
 
   // Helper function to get date range
   const getDateRangeFilter = () => {
@@ -160,7 +169,14 @@ const SuperAdminSystemInterface = ({
 
         for (const doc of snapshot.docs) {
           const data = doc.data();
-          const appointmentDate = data.dateTime.toDate();
+          
+          // Skip if data is null or undefined
+          if (!data) continue;
+          
+          const appointmentDate = data.dateTime?.toDate();
+          
+          // Skip if dateTime is missing
+          if (!appointmentDate) continue;
           
           // Apply date range filter
           if (appointmentDate < start || appointmentDate > end) continue;
@@ -363,6 +379,7 @@ const SuperAdminSystemInterface = ({
         notes: data.notes,
         country: centre?.address?.country || 'South Africa',
         paymentStatus: 'pending',
+        createdBy: auth.currentUser?.uid,
         createdAt: serverTimestamp(),
         lastModifiedBy: auth.currentUser?.uid
       };
@@ -448,31 +465,42 @@ const SuperAdminSystemInterface = ({
     if (!selectedAppointment) return;
 
     try {
-      const newDateTime = new Date(editFormData.dateTime);
-      const currentDateTime = selectedAppointment.dateTime;
+      const appointmentRef = doc(db, 'appointments', selectedAppointment.id);
       
-      // If date/time changed, use reschedule mutation
-      if (newDateTime.getTime() !== currentDateTime.getTime()) {
-        const duration = selectedAppointment.duration;
-        const endTime = new Date(newDateTime.getTime() + duration * 60000);
-        
-        await rescheduleAppointment.mutateAsync({
-          appointmentId: selectedAppointment.id,
-          newTimeSlot: {
-            startTime: newDateTime,
-            endTime: endTime,
-            staffId: editFormData.staffId,
-            staffName: selectedAppointment.staffName
-          },
-          reason: 'Updated by admin'
-        });
-      }
-      // Otherwise just update notes/status if needed
-      // Note: For simplicity, we're only handling reschedule here
-      // Full edit functionality would require a separate update mutation
+      // Get centre, service, and staff data for the new values
+      const selectedCentre = centres.find(c => c.id === editFormData.centreId);
+      const selectedService = appointmentServices.find(s => s.id === editFormData.serviceId);
+      const selectedStaff = appointmentStaff.find(s => s.id === editFormData.staffId);
+      
+      // Update the appointment with all new values
+      await updateDoc(appointmentRef, {
+        centreId: editFormData.centreId,
+        centreName: selectedCentre?.name || 'Unknown Centre',
+        serviceId: editFormData.serviceId,
+        serviceName: selectedService?.name || 'Unknown Service',
+        staffId: editFormData.staffId,
+        staffName: selectedStaff ? `${selectedStaff.firstName} ${selectedStaff.lastName}` : 'Unknown Staff',
+        dateTime: Timestamp.fromDate(new Date(editFormData.dateTime)),
+        startTime: Timestamp.fromDate(new Date(editFormData.dateTime)),
+        endTime: Timestamp.fromDate(new Date(new Date(editFormData.dateTime).getTime() + ((selectedService?.duration || selectedAppointment.duration) * 60000))),
+        duration: selectedService?.duration || selectedAppointment.duration,
+        price: selectedService?.price || selectedAppointment.price,
+        status: editFormData.status,
+        notes: editFormData.notes,
+        lastModifiedBy: auth.currentUser?.uid,
+        updatedAt: serverTimestamp()
+      });
+      
+      // Invalidate queries to refresh the data
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
       
       setShowEditModal(false);
       setSelectedAppointment(null);
+      
+      // Call onClose callback if provided
+      if (onClose) {
+        onClose();
+      }
     } catch (error) {
       console.error('Failed to update appointment:', error);
       alert('Failed to update appointment. Please try again.');
@@ -1278,26 +1306,167 @@ const SuperAdminSystemInterface = ({
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Treatment Centre
             </label>
-            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <div className="flex items-center">
-                <BuildingOfficeIcon className="w-5 h-5 text-blue-600 mr-2" />
-                <p className="text-sm font-medium text-blue-900">{selectedAppointment?.centreName}</p>
-              </div>
-            </div>
+            <Select
+              value={editFormData.centreId}
+              onChange={(value) => setEditFormData({ 
+                ...editFormData, 
+                centreId: value,
+                serviceId: '', // Reset service when centre changes
+                staffId: '' // Reset staff when centre changes
+              })}
+              options={centres.map(centre => ({
+                value: centre.id,
+                label: centre.name
+              }))}
+              placeholder="Select treatment centre..."
+              required
+            />
+          </div>
+
+          {/* Service */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Service
+            </label>
+            <Select
+              value={editFormData.serviceId}
+              onChange={(value) => setEditFormData({ 
+                ...editFormData, 
+                serviceId: value,
+                staffId: '' // Reset staff when service changes
+              })}
+              options={editFormData.centreId 
+                ? appointmentServices.length > 0
+                  ? appointmentServices.map(service => ({
+                      value: service.id,
+                      label: `${service.name} - ${formatPrice(service.price, 'South Africa')} (${service.duration}min)`
+                    }))
+                  : []
+                : []
+              }
+              placeholder={!editFormData.centreId 
+                ? "Please select a centre first" 
+                : appointmentServices.length === 0 
+                  ? "No services available at this centre"
+                  : "Select service..."
+              }
+              required
+              disabled={!editFormData.centreId}
+            />
+          </div>
+
+          {/* Staff Member */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Staff Member
+            </label>
+            <Select
+              value={editFormData.staffId}
+              onChange={(value) => setEditFormData({ ...editFormData, staffId: value })}
+              options={editFormData.centreId && editFormData.serviceId
+                ? appointmentStaff.length > 0
+                  ? appointmentStaff.map(staff => ({
+                      value: staff.id,
+                      label: `${staff.firstName} ${staff.lastName}${staff.position ? ` - ${staff.position}` : ''}`
+                    }))
+                  : []
+                : []
+              }
+              placeholder={!editFormData.centreId 
+                ? "Please select a centre first"
+                : !editFormData.serviceId
+                  ? "Please select a service first" 
+                  : appointmentStaff.length === 0 
+                    ? "No staff available for this service"
+                    : "Select staff member..."
+              }
+              required
+              disabled={!editFormData.centreId || !editFormData.serviceId}
+            />
           </div>
 
           {/* Date and Time */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Date and Time
-            </label>
-            <input
-              type="datetime-local"
-              value={editFormData.dateTime}
-              onChange={(e) => setEditFormData({ ...editFormData, dateTime: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Date *
+              </label>
+              <input
+                type="date"
+                value={editFormData.dateTime.split('T')[0] || ''}
+                onChange={(e) => {
+                  const date = e.target.value;
+                  const currentTime = editFormData.dateTime.split('T')[1] || '09:00';
+                  setEditFormData({ ...editFormData, dateTime: `${date}T${currentTime}` });
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+                min={new Date().toISOString().split('T')[0]}
+              />
+            </div>
+
+            {/* Time Slot Selection */}
+            {editFormData.dateTime.split('T')[0] && editFormData.staffId && editFormData.serviceId && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Available Time Slots *
+                </label>
+                <div className="border border-gray-300 rounded-lg p-4 bg-gray-50">
+                  <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
+                    {generateTimeSlots().map((slot) => (
+                      <button
+                        key={slot.time}
+                        type="button"
+                        onClick={() => {
+                          const date = editFormData.dateTime.split('T')[0];
+                          setEditFormData({ ...editFormData, dateTime: `${date}T${slot.time}` });
+                        }}
+                        disabled={!slot.available}
+                        className={`
+                          px-3 py-2 text-sm rounded border transition-colors
+                          ${editFormData.dateTime.split('T')[1] === slot.time
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : slot.available
+                              ? 'bg-white text-gray-700 border-gray-300 hover:bg-blue-50 hover:border-blue-300'
+                              : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                          }
+                        `}
+                      >
+                        {slot.time}
+                      </button>
+                    ))}
+                  </div>
+                  
+                  {generateTimeSlots().filter(slot => slot.available).length === 0 && (
+                    <div className="text-center py-4">
+                      <p className="text-gray-500">No available time slots for this date</p>
+                      <p className="text-sm text-gray-400 mt-1">Please select a different date</p>
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex items-center space-x-4 text-xs text-gray-500">
+                    <div className="flex items-center space-x-1">
+                      <div className="w-3 h-3 bg-white border border-gray-300 rounded"></div>
+                      <span>Available</span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <div className="w-3 h-3 bg-blue-600 rounded"></div>
+                      <span>Selected</span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <div className="w-3 h-3 bg-gray-100 border border-gray-200 rounded"></div>
+                      <span>Unavailable</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {(!editFormData.staffId || !editFormData.serviceId) && (
+              <div className="text-sm text-gray-500 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                💡 Please select a staff member and service first to see available time slots
+              </div>
+            )}
           </div>
 
           {/* Notes */}
@@ -1345,9 +1514,9 @@ const SuperAdminSystemInterface = ({
             </Button>
             <Button
               type="submit"
-              disabled={!selectedAppointment || !editFormData.dateTime || editFormData.status === selectedAppointment.status}
+              disabled={!selectedAppointment || !editFormData.dateTime || (selectedAppointment && editFormData.status === selectedAppointment.status)}
             >
-              {editFormData.status === selectedAppointment.status ? (
+              {selectedAppointment && editFormData.status === selectedAppointment.status ? (
                 <div className="text-gray-500">No changes needed</div>
               ) : (
                 'Update Appointment'

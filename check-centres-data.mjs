@@ -1,66 +1,50 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, getDocs, query, where } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, query, orderBy } from 'firebase/firestore';
 
+// Firebase config
 const firebaseConfig = {
-  apiKey: "AIzaSyBGvGKhzAKNnJdVNUwxCj0n8sHvmOAhMVE",
-  authDomain: "life-arrow-wellness.firebaseapp.com",
-  projectId: "life-arrow-wellness",
-  storageBucket: "life-arrow-wellness.firebasestorage.app",
-  messagingSenderId: "1071056763616",
-  appId: "1:1071056763616:web:b4c5a5f5e5f5f5f5f5f5f5"
+  apiKey: "AIzaSyCQHOGE6wjx-TFWHaOCIKbA7y9-IWN_J_k",
+  authDomain: "life-arrow-v1.firebaseapp.com",
+  projectId: "life-arrow-v1",
+  storageBucket: "life-arrow-v1.firebasestorage.app",
+  messagingSenderId: "810491503055",
+  appId: "1:810491503055:web:dcb3e9e3dc5c8c3e3bb4b9"
 };
 
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 async function checkCentresData() {
   try {
-    console.log('Checking centres data...');
-    
-    // Get all centres
-    const centresRef = collection(db, 'centres');
-    const snapshot = await getDocs(centresRef);
-    
-    console.log(`Total centres in database: ${snapshot.size}`);
-    
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      console.log('\n--- Centre ---');
-      console.log('ID:', doc.id);
-      console.log('Name:', data.name);
-      console.log('Is Active:', data.isActive);
-      console.log('Services field exists:', 'services' in data);
-      console.log('Services:', data.services);
-      console.log('Services count:', data.services?.length || 0);
-      
-      // Check for old field name
-      if (data.servicesOffered) {
-        console.log('OLD servicesOffered field:', data.servicesOffered);
-      }
-    });
+    console.log('🏢 Checking centres data...\n');
 
-    // Check active centres only
-    console.log('\n=== ACTIVE CENTRES ONLY ===');
-    const activeQuery = query(centresRef, where('isActive', '==', true));
-    const activeSnapshot = await getDocs(activeQuery);
-    console.log(`Active centres: ${activeSnapshot.size}`);
+    const centresRef = collection(db, 'centres');
+    const q = query(centresRef, orderBy('name'));
+    const snapshot = await getDocs(q);
     
-    const centresWithServices = [];
-    activeSnapshot.forEach(doc => {
-      const data = doc.data();
-      if (data.services && data.services.length > 0) {
-        centresWithServices.push({
-          name: data.name,
-          serviceCount: data.services.length
-        });
+    console.log(`📋 Found ${snapshot.size} centres:\n`);
+    
+    snapshot.docs.forEach((doc, index) => {
+      const centre = doc.data();
+      console.log(`${index + 1}. Centre ID: ${doc.id}`);
+      console.log(`   Name: ${centre.name || 'NO NAME'}`);
+      console.log(`   Code: ${centre.code || 'NO CODE'}`);
+      console.log(`   Active: ${centre.isActive !== false ? 'Yes' : 'No'}`);
+      console.log(`   Staff Assigned: ${centre.staffAssigned?.length || 0}`);
+      if (centre.address) {
+        console.log(`   Address: ${centre.address.street}, ${centre.address.city}`);
       }
+      console.log('');
     });
     
-    console.log('\nActive centres with services:', centresWithServices);
-    console.log('Count of centres with services:', centresWithServices.length);
-    
+    if (snapshot.size === 0) {
+      console.log('⚠️  No centres found in database');
+      console.log('💡 You may need to create centres first');
+    }
+
   } catch (error) {
-    console.error('Error checking centres:', error);
+    console.error('❌ Error checking centres:', error.message);
   }
 }
 

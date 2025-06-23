@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { auth } from '../../lib/firebase';
 import { useUserProfile } from '../../hooks/useUserProfile';
+import { useDashboardData } from '../../hooks/useDashboardData';
 import { signOut } from 'firebase/auth';
 import { 
   ChartBarIcon,
@@ -35,22 +36,53 @@ import { StaffManagement } from '../../components/admin/StaffManagement';
 import { AdminSetup } from '../../components/admin/AdminSetup';
 import AuditPage from './AuditPage';
 import ClientAppointmentInterface from '../../components/appointments/ClientAppointmentInterface';
+import { AppointmentManagement } from '../../components/admin/AppointmentManagement';
 import SystemLogsViewer from '../../components/admin/SystemLogsViewer';
+import { ProfileDropdown } from '../../components/ui/ProfileDropdown';
+import { UserProfileValidator } from '../../components/admin/UserProfileValidator';
 
 type AdminSection = 'overview' | 'clients' | 'appointments' | 'services' | 'centres' | 'staff' | 'scans' | 'videos' | 'wellness-plans' | 'reports' | 'settings' | 'audit' | 'site-health' | 'system-logs';
 
 export function Dashboard() {
   const { profile, loading } = useUserProfile();
+  const { stats, loading: statsLoading, error: statsError } = useDashboardData(profile);
   const [showUserRoles, setShowUserRoles] = useState(false);
   const [showCreateAdmin, setShowCreateAdmin] = useState(false);
   const [showAdminSetup, setShowAdminSetup] = useState(false);
   const [activeSection, setActiveSection] = useState<AdminSection>('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [siteHealthTab, setSiteHealthTab] = useState<'audit' | 'profiles'>('audit');
 
   const isSuperAdmin = profile?.role === 'super-admin';
 
   const handleLogout = async () => {
     await signOut(auth);
+  };
+
+  // Helper function to format currency
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-ZA', {
+      style: 'currency',
+      currency: 'ZAR',
+      minimumFractionDigits: 0
+    }).format(amount);
+  };
+
+  // Helper function to format growth percentage
+  const formatGrowth = (growth: number) => {
+    const isPositive = growth >= 0;
+    const Icon = isPositive ? ChevronUpIcon : ChevronDownIcon;
+    const colorClass = isPositive ? 'text-green-600' : 'text-red-600';
+    const iconColorClass = isPositive ? 'text-green-500' : 'text-red-500';
+    
+    return (
+      <div className="flex items-center mt-2">
+        <Icon className={`w-4 h-4 ${iconColorClass}`} />
+        <span className={`text-sm ${colorClass} ml-1`}>
+          {Math.abs(growth).toFixed(1)}% from last month
+        </span>
+      </div>
+    );
   };
 
   if (loading) {
@@ -86,6 +118,51 @@ export function Dashboard() {
     ...(profile?.role === 'super-admin' ? [{ id: 'site-health', label: 'Site Health', icon: HeartIcon }] : []),
   ] as const;
 
+  const renderSiteHealth = () => {
+    if (profile?.role !== 'super-admin') return null;
+    
+    return (
+      <div className="page-container">
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Site Health & System Maintenance</h1>
+          <p className="text-gray-600">Monitor system health, fix user profile issues, and run diagnostics</p>
+        </div>
+        
+        {/* Tab Navigation */}
+        <div className="mb-6 border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8">
+            <button
+              onClick={() => setSiteHealthTab('audit')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                siteHealthTab === 'audit'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <CodeBracketIcon className="w-5 h-5 inline mr-2" />
+              System Audit
+            </button>
+            <button
+              onClick={() => setSiteHealthTab('profiles')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                siteHealthTab === 'profiles'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <UsersIcon className="w-5 h-5 inline mr-2" />
+              User Profile Validation
+            </button>
+          </nav>
+        </div>
+        
+        {/* Tab Content */}
+        {siteHealthTab === 'audit' && <AuditPage />}
+        {siteHealthTab === 'profiles' && <UserProfileValidator />}
+      </div>
+    );
+  };
+
   const renderMainContent = () => {
     switch (activeSection) {
       case 'overview':
@@ -101,7 +178,7 @@ export function Dashboard() {
       case 'appointments':
         return renderAppointmentsManagement();
       case 'site-health':
-        return profile?.role === 'super-admin' ? <AuditPage /> : null;
+        return renderSiteHealth();
       case 'audit':
         return profile?.role === 'super-admin' ? <AuditPage /> : null;
       case 'system-logs':
@@ -146,76 +223,96 @@ export function Dashboard() {
         </div>
       </div>
 
+      {/* Stats Loading State */}
+      {statsLoading && (
+        <div className="stats-grid">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="stat-card-blue">
+              <div className="animate-pulse">
+                <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+                <div className="h-8 bg-gray-200 rounded w-1/2 mb-2"></div>
+                <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Stats Error State */}
+      {statsError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+          <p className="text-red-700">⚠️ {statsError}</p>
+        </div>
+      )}
+
       {/* Stats Grid */}
-      <div className="stats-grid">
-        {/* Active Clients */}
-        <div className="stat-card-blue">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Active Clients</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">127</p>
-              <div className="flex items-center mt-2">
-                <ChevronUpIcon className="w-4 h-4 text-green-500" />
-                <span className="text-sm text-green-600 ml-1">12% from last month</span>
+      {!statsLoading && !statsError && (
+        <div className="stats-grid">
+          {/* Active Clients */}
+          <div className="stat-card-blue">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Active Clients</p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">
+                  {stats.activeClients.toLocaleString()}
+                </p>
+                {formatGrowth(stats.clientsGrowth)}
+              </div>
+              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                <UsersIcon className="w-6 h-6 text-blue-600" />
               </div>
             </div>
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <UsersIcon className="w-6 h-6 text-blue-600" />
-            </div>
           </div>
-        </div>
 
-        {/* Today's Appointments */}
-        <div className="stat-card-green">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Today's Appointments</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">24</p>
-              <div className="flex items-center mt-2">
-                <ChevronUpIcon className="w-4 h-4 text-green-500" />
-                <span className="text-sm text-green-600 ml-1">8% from yesterday</span>
+          {/* Today's Appointments */}
+          <div className="stat-card-green">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Today's Appointments</p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">
+                  {stats.todayAppointments.toLocaleString()}
+                </p>
+                {formatGrowth(stats.appointmentsGrowth)}
+              </div>
+              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                <CalendarDaysIcon className="w-6 h-6 text-green-600" />
               </div>
             </div>
-            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-              <CalendarDaysIcon className="w-6 h-6 text-green-600" />
-            </div>
           </div>
-        </div>
 
-        {/* Monthly Revenue */}
-        <div className="stat-card-yellow">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Monthly Revenue</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">R89,420</p>
-              <div className="flex items-center mt-2">
-                <ChevronDownIcon className="w-4 h-4 text-red-500" />
-                <span className="text-sm text-red-600 ml-1">3% from last month</span>
+          {/* Monthly Revenue */}
+          <div className="stat-card-yellow">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Monthly Revenue</p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">
+                  {formatCurrency(stats.monthlyRevenue)}
+                </p>
+                {formatGrowth(stats.revenueGrowth)}
+              </div>
+              <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+                <BanknotesIcon className="w-6 h-6 text-yellow-600" />
               </div>
             </div>
-            <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-              <BanknotesIcon className="w-6 h-6 text-yellow-600" />
-            </div>
           </div>
-        </div>
 
-        {/* Completion Rate */}
-        <div className="stat-card-purple">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Completion Rate</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">94.2%</p>
-              <div className="flex items-center mt-2">
-                <ChevronUpIcon className="w-4 h-4 text-green-500" />
-                <span className="text-sm text-green-600 ml-1">1.2% from last month</span>
+          {/* Completion Rate */}
+          <div className="stat-card-purple">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Completion Rate</p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">
+                  {stats.completionRate.toFixed(1)}%
+                </p>
+                {formatGrowth(stats.completionGrowth)}
               </div>
-            </div>
-            <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-              <ChartPieIcon className="w-6 h-6 text-purple-600" />
+              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                <ChartPieIcon className="w-6 h-6 text-purple-600" />
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Management Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
@@ -382,8 +479,8 @@ export function Dashboard() {
   );
 
   const renderAppointmentsManagement = () => (
-    <div className="p-0">
-      <ClientAppointmentInterface isAdminMode={true} />
+    <div className="page-container">
+      <AppointmentManagement />
     </div>
   );
 
@@ -491,17 +588,7 @@ export function Dashboard() {
               <div className="hidden sm:block text-right">
                 <p className="text-sm font-medium text-gray-900">R ZAR</p>
               </div>
-              <div className="w-8 h-8 bg-primary-500 rounded-full"></div>
-              <div className="hidden sm:block">
-                <p className="text-sm font-medium text-gray-900">{profile?.firstName} {profile?.lastName}</p>
-                <p className="text-xs text-gray-500 capitalize">{profile?.role?.replace('-', ' ')}</p>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="btn btn-secondary text-sm"
-              >
-                Logout
-              </button>
+              {profile && <ProfileDropdown user={profile} />}
             </div>
           </div>
         </header>

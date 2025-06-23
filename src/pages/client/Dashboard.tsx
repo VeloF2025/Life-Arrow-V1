@@ -373,11 +373,11 @@ export default function ClientDashboard() {
           {activeSection === 'profile' && (
             <div className="card">
               <div className="p-6 border-b border-gray-200">
-                <h2 className="text-xl font-semibold text-gray-900">Profile Management</h2>
-                <p className="text-gray-600 mt-1">Manage your personal information and preferences</p>
+                <h2 className="text-xl font-semibold text-gray-900">Complete Your Profile</h2>
+                <p className="text-gray-600 mt-1">Please provide additional information to enhance your experience</p>
               </div>
               <div className="p-6">
-                <ProfileManagement />
+                <ProfileCompletionForm onSuccess={handleProfileCompletionSuccess} />
               </div>
             </div>
           )}

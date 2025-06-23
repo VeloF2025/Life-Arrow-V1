@@ -38,8 +38,14 @@ import {
   addDoc,
   serverTimestamp,
   deleteDoc,
-  where
+  where,
+  setDoc
 } from 'firebase/firestore';
+import { 
+  createUserWithEmailAndPassword, 
+  updateProfile, 
+  sendPasswordResetEmail 
+} from 'firebase/auth';
 import { 
   ref, 
   uploadBytes, 
@@ -56,6 +62,7 @@ import ClientAppointmentManagement from './ClientAppointmentManagement';
 import { Modal } from '../ui/Modal';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import type { TreatmentCentre, ClientRegistrationData } from '../../types';
+import { auth } from '../../lib/firebase';
 
 interface ClientInfo {
   id: string;
@@ -119,7 +126,14 @@ interface Centre {
 
 export function ClientsManagement() {
   const navigate = useNavigate();
-  const { profile } = useUserProfile();
+  const { profile, loading: profileLoading } = useUserProfile();
+  
+  // Add debug logging for profile changes
+  console.log('🔍 ClientsManagement render - Profile:', profile);
+  console.log('🔍 ClientsManagement render - Profile Loading:', profileLoading);
+  console.log('🔍 ClientsManagement render - Profile Role:', profile?.role);
+  console.log('🔍 ClientsManagement render - Profile ID:', profile?.id);
+
   const [clients, setClients] = useState<ClientInfo[]>([]);
   const [filteredClients, setFilteredClients] = useState<ClientInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -524,9 +538,20 @@ export function ClientsManagement() {
   ];
 
   useEffect(() => {
-    const unsubscribe = setupRealtimeListener();
-    return () => unsubscribe?.();
-  }, []);
+    console.log('🔥 useEffect triggered - profileLoading:', profileLoading, 'profile:', !!profile);
+    console.log('🔥 Profile details:', profile);
+    console.log('🔥 Profile role:', profile?.role);
+    console.log('🔥 Profile ID:', profile?.id);
+    
+    // Only start loading clients after profile has loaded
+    if (!profileLoading && profile) {
+      console.log('🚀 Conditions met - calling setupRealtimeListener');
+      const unsubscribe = setupRealtimeListener();
+      return () => unsubscribe?.();
+    } else {
+      console.log('⏳ Waiting for profile - profileLoading:', profileLoading, 'profile exists:', !!profile);
+    }
+  }, [profileLoading, profile]);
 
   useEffect(() => {
     filterAndSortClients();
@@ -540,82 +565,208 @@ export function ClientsManagement() {
   };
 
   const loadClientsOnce = async () => {
+    console.log('🚨🚨🚨 LOAD CLIENTS ONCE FUNCTION CALLED 🚨🚨🚨');
+    console.log('Profile:', profile);
+    console.log('Profile Loading:', profileLoading);
+    
     try {
       setLoading(true);
       
-      // For super-admin, fetch all clients
-      if (profile?.role === 'super-admin') {
-        const clientsQuery = query(
-          collection(db, 'clients'),
-          orderBy('addedTime', 'desc'),
-          limit(100)
-        );
-        
-        const snapshot = await getDocs(clientsQuery);
-        const clientsData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as ClientInfo[];
-        
-        setClients(clientsData);
-        setError(null);
+      console.log('Loading clients. User profile:', profile);
+      console.log('User role:', profile?.role);
+      console.log('Profile loading state:', profileLoading);
+      
+      // Check if user is authenticated
+      const currentUser = auth.currentUser;
+      console.log('🔐 Current authenticated user:', currentUser?.uid);
+      console.log('🔐 User email:', currentUser?.email);
+      
+      if (!currentUser) {
+        console.error('❌ No authenticated user found');
+        setError('You must be logged in to view clients');
+        setLoading(false);
         return;
       }
       
-      // For admin users, first get their assigned centres
-      if (profile?.role === 'admin' && profile?.id) {
-        // Fetch admin's assigned centres
-        const centresQuery = query(
-          collection(db, 'centres'),
-          where('adminIds', 'array-contains', profile.id)
-        );
+      // Wait for profile to load before proceeding
+      if (profileLoading || !profile) {
+        console.log('Profile still loading or null, skipping client fetch');
+        setLoading(false);
+        return;
+      }
+      
+      // Normalize role for comparison (handle different formats)
+      const normalizedRole = profile?.role?.toLowerCase().replace(/[\s-]/g, '');
+      console.log('Normalized role:', normalizedRole);
+      
+      // For super-admin, fetch all clients (handle different role formats)
+      if (normalizedRole === 'superadmin' || profile?.role === 'super-admin' || profile?.role === 'Super Admin') {
+        console.log('Loading clients as super-admin');
         
-        const centresSnapshot = await getDocs(centresQuery);
-        const adminCentres = centresSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as TreatmentCentre[];
-        
-        if (adminCentres.length === 0) {
-          // Admin has no assigned centres
-          setClients([]);
+        try {
+          const clientsQuery = query(
+            collection(db, 'clients'),
+            orderBy('addedTime', 'desc'),
+            limit(100)
+          );
+          
+          const snapshot = await getDocs(clientsQuery);
+          const clientsData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as ClientInfo[];
+          
+          console.log('Super-admin loaded clients:', clientsData.length);
+          setClients(clientsData);
           setError(null);
           return;
+        } catch (queryError: any) {
+          console.error('❌ Error with orderBy query:', queryError);
+          
+          if (queryError.code === 'failed-precondition' && queryError.message?.includes('index')) {
+            console.log('🔧 Index issue detected, trying simple query without orderBy...');
+            
+            // Fallback: Try without orderBy
+            const simpleSnapshot = await getDocs(collection(db, 'clients'));
+            const clientsData = simpleSnapshot.docs.map(doc => ({
+              id: doc.id,
+              ...doc.data()
+            })) as ClientInfo[];
+            
+            console.log('Simple query loaded clients:', clientsData.length);
+            setClients(clientsData);
+            setError('Client data loaded (indexes still building)');
+            return;
+          } else if (queryError.code === 'permission-denied') {
+            console.error('❌ Permission denied accessing clients collection');
+            setError('Permission denied. Please check your access rights.');
+            setClients([]);
+            return;
+          } else {
+            throw queryError; // Re-throw other errors
+          }
         }
-        
-        // Get centre names for filtering clients
-        const centreNames = adminCentres.map(centre => centre.name);
-        
-        // Fetch all clients and filter by centre assignment
-        const clientsQuery = query(
-          collection(db, 'clients'),
-          orderBy('addedTime', 'desc'),
-          limit(200) // Increased limit since we'll filter after fetching
-        );
-        
-        const snapshot = await getDocs(clientsQuery);
-        const allClientsData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as ClientInfo[];
-        
-        // Filter clients by admin's centres
-        const filteredClients = allClientsData.filter(client => 
-          centreNames.includes(client.myNearestTreatmentCentre)
-        );
-        
-        setClients(filteredClients);
-        setError(null);
-        return;
       }
       
+      // For admin users (check role, ID is optional for now)
+      if (profile?.role === 'admin') {
+        console.log('Loading clients as admin, profile ID:', profile.id);
+        
+        // If admin has ID, try to get their assigned centres
+        if (profile?.id) {
+          // Fetch admin's assigned centres
+          const centresQuery = query(
+            collection(db, 'centres'),
+            where('adminIds', 'array-contains', profile.id)
+          );
+          
+          const centresSnapshot = await getDocs(centresQuery);
+          const adminCentres = centresSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as TreatmentCentre[];
+          
+          console.log('Admin assigned centres:', adminCentres);
+          
+          if (adminCentres.length === 0) {
+            console.log('Admin has no assigned centres, giving full access for now');
+            // Fall through to load all clients like super-admin
+          } else {
+            // Get centre names for filtering clients
+            const centreNames = adminCentres.map(centre => centre.name);
+            console.log('Centre names for filtering:', centreNames);
+            
+            // Fetch all clients and filter by centre assignment
+            try {
+              const clientsQuery = query(
+                collection(db, 'clients'),
+                orderBy('addedTime', 'desc'),
+                limit(200) // Increased limit since we'll filter after fetching
+              );
+              
+              const snapshot = await getDocs(clientsQuery);
+              const allClientsData = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+              })) as ClientInfo[];
+              
+              console.log('All clients fetched:', allClientsData.length);
+              console.log('Sample client treatment centres:', allClientsData.slice(0, 3).map(c => c.myNearestTreatmentCentre));
+              
+              // Filter clients by admin's centres
+              const filteredClients = allClientsData.filter(client => 
+                centreNames.includes(client.myNearestTreatmentCentre)
+              );
+              
+              console.log('Filtered clients:', filteredClients.length);
+              setClients(filteredClients);
+              setError(null);
+              return;
+            } catch (queryError: any) {
+              if (queryError.code === 'failed-precondition') {
+                // Fallback: Simple query without orderBy
+                const simpleSnapshot = await getDocs(collection(db, 'clients'));
+                const allClientsData = simpleSnapshot.docs.map(doc => ({
+                  id: doc.id,
+                  ...doc.data()
+                })) as ClientInfo[];
+                
+                const filteredClients = allClientsData.filter(client => 
+                  centreNames.includes(client.myNearestTreatmentCentre)
+                );
+                
+                console.log('Fallback query - filtered clients:', filteredClients.length);
+                setClients(filteredClients);
+                setError('Client data loaded (indexes still building)');
+                return;
+              } else {
+                throw queryError;
+              }
+            }
+          }
+        }
+        
+        // Admin without ID or no assigned centres - give them full access for now
+        console.log('Loading all clients for admin (no ID or no assigned centres)');
+        try {
+          const simpleSnapshot = await getDocs(collection(db, 'clients'));
+          const clientsData = simpleSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as ClientInfo[];
+          
+          console.log('Admin loaded all clients:', clientsData.length);
+          setClients(clientsData);
+          setError(null);
+          return;
+        } catch (queryError: any) {
+          console.error('❌ Error loading clients for admin:', queryError);
+          if (queryError.code === 'permission-denied') {
+            setError('Permission denied. Please check your access rights.');
+            setClients([]);
+            return;
+          } else {
+            throw queryError;
+          }
+        }
+      }
+      
+      console.log('User role not recognized or no profile ID. Role:', profile?.role, 'ID:', profile?.id);
       // Fallback - empty array for other roles or if no profile
       setClients([]);
       setError(null);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading clients:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load clients');
+      
+      if (error.code === 'permission-denied') {
+        setError('Permission denied. Please check your login status and try again.');
+      } else if (error.code === 'failed-precondition') {
+        setError('Database indexes are still building. Please try again in a few minutes.');
+      } else {
+        setError(error instanceof Error ? error.message : 'Failed to load clients');
+      }
+      setClients([]);
     } finally {
       setLoading(false);
     }
@@ -946,6 +1097,28 @@ export function ClientsManagement() {
                   View Appointments
                 </Button>
                 
+                {/* Show Link User button only if client doesn't have a user account */}
+                {!client.userId && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    disabled={isUpdating}
+                    onClick={() => handleLinkUser(client)}
+                    className="text-blue-600 border-blue-300 hover:bg-blue-50 hover:border-blue-400"
+                  >
+                    <LinkIcon className="w-4 h-4 mr-1" />
+                    Link User Account
+                  </Button>
+                )}
+                
+                {/* Show user account status */}
+                {client.userId && (
+                  <div className="flex items-center text-sm text-green-600">
+                    <CheckCircleIcon className="w-4 h-4 mr-1" />
+                    User Account Linked
+                  </div>
+                )}
+                
                 <Button 
                   variant="outline" 
                   size="sm" 
@@ -1072,6 +1245,144 @@ export function ClientsManagement() {
   const removePhoto = () => {
     setPhotoFile(null);
     setPhotoPreview(null);
+  };
+
+  // Add this near the top with other state variables
+  const [linkingUserId, setLinkingUserId] = useState<string | null>(null);
+  const [showLinkUserModal, setShowLinkUserModal] = useState(false);
+  const [linkUserEmail, setLinkUserEmail] = useState('');
+  const [linkUserPassword, setLinkUserPassword] = useState('');
+  const [linkingError, setLinkingError] = useState<string | null>(null);
+
+  // Add this function after the other handler functions
+  const handleLinkUser = (client: ClientInfo) => {
+    setLinkingUserId(client.id);
+    setLinkUserEmail(client.email);
+    setShowLinkUserModal(true);
+    setLinkingError(null);
+  };
+
+  const linkClientToUser = async () => {
+    if (!linkingUserId) return;
+
+    setSubmitting(true);
+    setLinkingError(null);
+
+    try {
+      const client = clients.find(c => c.id === linkingUserId);
+      if (!client) throw new Error('Client not found');
+
+      // Create user account with temporary password
+      const tempPassword = linkUserPassword || `TempPass${Math.random().toString(36).slice(2)}${Date.now()}`;
+      
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        linkUserEmail,
+        tempPassword
+      );
+
+      // Update display name
+      await updateProfile(userCredential.user, {
+        displayName: `${client.firstName} ${client.lastName}`,
+      });
+
+      // Create user profile
+      await setDoc(doc(db, 'users', userCredential.user.uid), {
+        id: userCredential.user.uid,
+        email: linkUserEmail,
+        firstName: client.firstName,
+        lastName: client.lastName,
+        role: 'client',
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Create client profile
+      await setDoc(doc(db, 'clientProfiles', userCredential.user.uid), {
+        id: userCredential.user.uid,
+        email: linkUserEmail,
+        firstName: client.firstName,
+        lastName: client.lastName,
+        role: 'client',
+        isActive: true,
+        
+        // Import existing client data
+        clientRecordId: client.id,
+        mobile: client.mobile || '',
+        gender: client.gender || '',
+        dateOfBirth: client.dateOfBirth || null,
+        country: client.country || 'South Africa',
+        address: {
+          street: client.address1 || '',
+          city: client.cityTown || '',
+          province: client.province || '',
+          postalCode: client.postalCode || ''
+        },
+        medicalInfo: {
+          allergies: client.allergies || '',
+          medications: client.currentMedication || '',
+          conditions: client.chronicConditions || '',
+          treatments: client.currentTreatments || ''
+        },
+        preferredTreatmentCentre: client.myNearestTreatmentCentre || '',
+        reasonForTransformation: client.reasonForTransformation || '',
+        
+        // Default profile settings
+        goals: [],
+        healthMetrics: [],
+        preferences: {
+          timezone: 'Africa/Johannesburg',
+          notifications: {
+            email: true,
+            push: true,
+            reminders: true,
+          },
+          privacy: {
+            shareDataWithAdmin: true,
+            allowAnalytics: true,
+          },
+        },
+        onboardingCompleted: false,
+        importedFromClientRecord: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Update client record with user link
+      await updateDoc(doc(db, 'clients', linkingUserId), {
+        userId: userCredential.user.uid,
+        status: 'active',
+        linkedAt: new Date(),
+        userAccountCreated: true,
+        lastUpdated: new Date()
+      });
+
+      // Send password reset email
+      await sendPasswordResetEmail(auth, linkUserEmail);
+
+      setShowLinkUserModal(false);
+      setLinkingUserId(null);
+      setLinkUserEmail('');
+      setLinkUserPassword('');
+      
+      console.log('✅ Successfully linked client to user account');
+    } catch (error: unknown) {
+      const firebaseError = error as { code: string };
+      switch (firebaseError.code) {
+        case 'auth/email-already-in-use':
+          setLinkingError('This email already has a user account');
+          break;
+        case 'auth/invalid-email':
+          setLinkingError('Invalid email address');
+          break;
+        default:
+          setLinkingError('Failed to create user account. Please try again.');
+      }
+      console.error('Error linking client to user:', error);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (loading) {
@@ -1930,6 +2241,76 @@ export function ClientsManagement() {
             }}
           />
         </Modal>
+      )}
+
+      {/* Link User Modal */}
+      {showLinkUserModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-gray-900">Link Client to User</h2>
+                <Button variant="ghost" onClick={() => setShowLinkUserModal(false)}>
+                  <XMarkIcon className="w-6 h-6" />
+                </Button>
+              </div>
+
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                linkClientToUser();
+              }} className="space-y-6">
+                {/* Personal Information */}
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Personal Information</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input
+                      label="Email"
+                      type="email"
+                      value={linkUserEmail}
+                      onChange={(e) => setLinkUserEmail(e.target.value)}
+                      required
+                    />
+                    <Input
+                      label="Password"
+                      type="password"
+                      value={linkUserPassword}
+                      onChange={(e) => setLinkUserPassword(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Form Actions */}
+                <div className="flex justify-end space-x-3 pt-6 border-t">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowLinkUserModal(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={submitting}
+                    className="bg-primary-600 hover:bg-primary-700"
+                  >
+                    {submitting ? (
+                      <>
+                        <ArrowPathIcon className="w-4 h-4 mr-2 animate-spin" />
+                        Linking...
+                      </>
+                    ) : (
+                      <>
+                        <CheckIcon className="w-4 h-4 mr-2" />
+                        Link Client
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

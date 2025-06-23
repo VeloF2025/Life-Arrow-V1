@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../../lib/firebase';
 type LoginFormType = z.infer<typeof loginSchema>;
 import { Button } from '../ui/Button';
@@ -22,11 +22,16 @@ export default function LoginForm({ onSuccess }: LoginFormProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  const [resetEmailSent, setResetEmailSent] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
 
   const {
     register,
     handleSubmit,
     formState: { errors },
+    getValues,
   } = useForm<LoginFormType>({
     resolver: zodResolver(loginSchema),
   });
@@ -65,11 +70,89 @@ export default function LoginForm({ onSuccess }: LoginFormProps) {
     }
   };
 
+  const handleForgotPassword = async () => {
+    setSendingReset(true);
+    setAuthError(null);
+    
+    const emailToReset = forgotPasswordEmail || getValues('email');
+    
+    if (!emailToReset) {
+      setAuthError('Please enter your email address');
+      setSendingReset(false);
+      return;
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, emailToReset);
+      setResetEmailSent(true);
+      setShowForgotPassword(false);
+    } catch (error: unknown) {
+      const firebaseError = error as { code: string };
+      switch (firebaseError.code) {
+        case 'auth/user-not-found':
+          setAuthError('No account found with this email address. Please contact an administrator.');
+          break;
+        case 'auth/invalid-email':
+          setAuthError('Invalid email address');
+          break;
+        case 'auth/too-many-requests':
+          setAuthError('Too many password reset requests. Please try again later.');
+          break;
+        default:
+          setAuthError('Failed to send password reset email. Please try again.');
+      }
+    } finally {
+      setSendingReset(false);
+    }
+  };
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       {authError && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">
           {authError}
+        </div>
+      )}
+
+      {resetEmailSent && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md">
+          Password reset email sent! Check your inbox and spam folder.
+        </div>
+      )}
+
+      {showForgotPassword && (
+        <div className="bg-blue-50 border border-blue-200 p-4 rounded-md">
+          <h3 className="text-lg font-medium text-blue-900 mb-2">Reset Password</h3>
+          <p className="text-sm text-blue-700 mb-3">
+            Enter your email address and we'll send you a link to reset your password.
+          </p>
+          <div className="space-y-3">
+            <Input
+              type="email"
+              placeholder="Enter your email address"
+              value={forgotPasswordEmail}
+              onChange={(e) => setForgotPasswordEmail(e.target.value)}
+            />
+            <div className="flex space-x-2">
+              <Button
+                type="button"
+                onClick={handleForgotPassword}
+                isLoading={sendingReset}
+                size="sm"
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                Send Reset Email
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowForgotPassword(false)}
+                size="sm"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -130,9 +213,13 @@ export default function LoginForm({ onSuccess }: LoginFormProps) {
         </div>
 
         <div className="text-sm">
-          <a href="#" className="font-medium text-blue-600 hover:text-blue-500">
+          <button
+            type="button"
+            onClick={() => setShowForgotPassword(true)}
+            className="font-medium text-blue-600 hover:text-blue-500"
+          >
             Forgot your password?
-          </a>
+          </button>
         </div>
       </div>
 

@@ -20,7 +20,7 @@ import { ProgressIndicator, type ProgressStep } from '../ui/ProgressIndicator';
 import LoadingSpinner from '../ui/LoadingSpinner';
 
 interface ProfileCompletionFormProps {
-  onComplete?: () => void;
+  onSuccess?: () => void;
 }
 
 const FORM_STEPS: ProgressStep[] = [
@@ -32,7 +32,7 @@ const FORM_STEPS: ProgressStep[] = [
   { id: 6, title: 'Terms & Confirmation' },
 ];
 
-export function ProfileCompletionForm({ onComplete }: ProfileCompletionFormProps) {
+export function ProfileCompletionForm({ onSuccess }: ProfileCompletionFormProps) {
   const [user, setUser] = useState<User | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -314,8 +314,8 @@ export function ProfileCompletionForm({ onComplete }: ProfileCompletionFormProps
       // Clear auto-saved data
       clearStorage();
       
-      if (onComplete) {
-        onComplete();
+      if (onSuccess) {
+        onSuccess();
       }
     } catch (error) {
       console.error('Error saving profile:', error);
