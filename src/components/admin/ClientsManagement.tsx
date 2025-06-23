@@ -37,7 +37,8 @@ import {
   FirestoreError,
   addDoc,
   serverTimestamp,
-  deleteDoc
+  deleteDoc,
+  where
 } from 'firebase/firestore';
 import { 
   ref, 
@@ -53,6 +54,7 @@ import { TextArea } from '../ui/TextArea';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import ClientAppointmentManagement from './ClientAppointmentManagement';
 import { Modal } from '../ui/Modal';
+import { useUserProfile } from '../../hooks/useUserProfile';
 import type { TreatmentCentre, ClientRegistrationData } from '../../types';
 
 interface ClientInfo {
@@ -117,6 +119,7 @@ interface Centre {
 
 export function ClientsManagement() {
   const navigate = useNavigate();
+  const { profile } = useUserProfile();
   const [clients, setClients] = useState<ClientInfo[]>([]);
   const [filteredClients, setFilteredClients] = useState<ClientInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -530,64 +533,86 @@ export function ClientsManagement() {
   }, [clients, searchTerm, statusFilter, centreFilter, sortBy, sortOrder]);
 
   const setupRealtimeListener = () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const clientsQuery = query(
-        collection(db, 'clients'),
-        orderBy('addedTime', 'desc'),
-        limit(100)
-      );
-
-      const unsubscribe = onSnapshot(
-        clientsQuery,
-        (snapshot) => {
-          const clientsData = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          })) as ClientInfo[];
-          
-          setClients(clientsData);
-          setLoading(false);
-          setError(null);
-        },
-        (error: FirestoreError) => {
-          console.error('Error listening to clients:', error);
-          setError(`Failed to load clients: ${error.message}`);
-          setLoading(false);
-          
-          // Fallback to one-time fetch if real-time fails
-          loadClientsOnce();
-        }
-      );
-
-      return unsubscribe;
-    } catch (error) {
-      console.error('Error setting up real-time listener:', error);
-      setError('Failed to connect to database');
-      setLoading(false);
-      return null;
-    }
+    // For role-based filtering, use one-time load instead of real-time listener
+    // Real-time listener with complex filtering across multiple collections is complex
+    loadClientsOnce();
+    return null;
   };
 
   const loadClientsOnce = async () => {
     try {
       setLoading(true);
-      const clientsQuery = query(
-        collection(db, 'clients'),
-        orderBy('addedTime', 'desc'),
-        limit(100)
-      );
       
-      const snapshot = await getDocs(clientsQuery);
-      const clientsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as ClientInfo[];
+      // For super-admin, fetch all clients
+      if (profile?.role === 'super-admin') {
+        const clientsQuery = query(
+          collection(db, 'clients'),
+          orderBy('addedTime', 'desc'),
+          limit(100)
+        );
+        
+        const snapshot = await getDocs(clientsQuery);
+        const clientsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as ClientInfo[];
+        
+        setClients(clientsData);
+        setError(null);
+        return;
+      }
       
-      setClients(clientsData);
+      // For admin users, first get their assigned centres
+      if (profile?.role === 'admin' && profile?.id) {
+        // Fetch admin's assigned centres
+        const centresQuery = query(
+          collection(db, 'centres'),
+          where('adminIds', 'array-contains', profile.id)
+        );
+        
+        const centresSnapshot = await getDocs(centresQuery);
+        const adminCentres = centresSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as TreatmentCentre[];
+        
+        if (adminCentres.length === 0) {
+          // Admin has no assigned centres
+          setClients([]);
+          setError(null);
+          return;
+        }
+        
+        // Get centre names for filtering clients
+        const centreNames = adminCentres.map(centre => centre.name);
+        
+        // Fetch all clients and filter by centre assignment
+        const clientsQuery = query(
+          collection(db, 'clients'),
+          orderBy('addedTime', 'desc'),
+          limit(200) // Increased limit since we'll filter after fetching
+        );
+        
+        const snapshot = await getDocs(clientsQuery);
+        const allClientsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as ClientInfo[];
+        
+        // Filter clients by admin's centres
+        const filteredClients = allClientsData.filter(client => 
+          centreNames.includes(client.myNearestTreatmentCentre)
+        );
+        
+        setClients(filteredClients);
+        setError(null);
+        return;
+      }
+      
+      // Fallback - empty array for other roles or if no profile
+      setClients([]);
       setError(null);
+      
     } catch (error) {
       console.error('Error loading clients:', error);
       setError(error instanceof Error ? error.message : 'Failed to load clients');

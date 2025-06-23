@@ -3,11 +3,22 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, getDocs, query } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
-import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
+import { Card } from '../ui/Card';
+import LoadingSpinner from '../ui/LoadingSpinner';
+import { 
+  EyeIcon, 
+  EyeSlashIcon,
+  PlusIcon,
+  XMarkIcon,
+  BuildingOfficeIcon,
+  MapPinIcon,
+  PhoneIcon,
+  UserIcon
+} from '@heroicons/react/24/outline';
 
 const createAdminSchema = z.object({
   firstName: z.string().min(2, 'First name must be at least 2 characters'),
@@ -29,11 +40,36 @@ interface CreateAdminFormProps {
   onCancel?: () => void;
 }
 
+interface TreatmentCentre {
+  id: string;
+  name: string;
+  address: {
+    street: string;
+    suburb: string;
+    city: string;
+    province: string;
+    postalCode: string;
+  };
+  contactInfo: {
+    phone: string;
+    email: string;
+    managerName: string;
+  };
+  isActive: boolean;
+}
+
 export default function CreateAdminForm({ onSuccess, onCancel }: CreateAdminFormProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // Centre assignment state
+  const [assignedCentreIds, setAssignedCentreIds] = useState<string[]>([]);
+  const [showCentresLookup, setShowCentresLookup] = useState(false);
+  const [centres, setCentres] = useState<TreatmentCentre[]>([]);
+  const [centresLoading, setCentresLoading] = useState(false);
+  const [centresError, setCentresError] = useState<string | null>(null);
 
   const {
     register,
@@ -43,6 +79,40 @@ export default function CreateAdminForm({ onSuccess, onCancel }: CreateAdminForm
   } = useForm<CreateAdminForm>({
     resolver: zodResolver(createAdminSchema),
   });
+
+  // Load centres for assignment
+  const loadCentres = async () => {
+    setCentresLoading(true);
+    setCentresError(null);
+    try {
+      const centresQuery = query(collection(db, 'centres'));
+      const snapshot = await getDocs(centresQuery);
+      const centresData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as TreatmentCentre[];
+      setCentres(centresData);
+    } catch (error) {
+      console.error('Error loading centres:', error);
+      setCentresError('Failed to load centres');
+    } finally {
+      setCentresLoading(false);
+    }
+  };
+
+  // Handle centre selection
+  const handleCentreSelect = (centre: TreatmentCentre) => {
+    if (assignedCentreIds.includes(centre.id)) {
+      return; // Already selected
+    }
+    setAssignedCentreIds(prev => [...prev, centre.id]);
+    setShowCentresLookup(false);
+  };
+
+  // Remove centre assignment
+  const removeCentreAssignment = (centreId: string) => {
+    setAssignedCentreIds(prev => prev.filter(id => id !== centreId));
+  };
 
   const onSubmit = async (data: CreateAdminForm) => {
     setIsLoading(true);

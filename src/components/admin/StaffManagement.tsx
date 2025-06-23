@@ -10,15 +10,20 @@ import {
   doc, 
   serverTimestamp,
   getDocs,
-  limit
+  limit,
+  setDoc
 } from 'firebase/firestore';
 import { 
   ref, 
   uploadBytes, 
-  getDownloadURL, 
-  deleteObject 
+  getDownloadURL 
 } from 'firebase/storage';
-import { db, storage } from '../../lib/firebase';
+import { 
+  createUserWithEmailAndPassword, 
+  sendPasswordResetEmail,
+  sendEmailVerification
+} from 'firebase/auth';
+import { db, storage, auth } from '../../lib/firebase';
 import { 
   PlusIcon, 
   MagnifyingGlassIcon,
@@ -34,13 +39,17 @@ import {
   PhoneIcon,
   UserIcon,
   CameraIcon,
-  PhotoIcon
+  PhotoIcon,
+  ShieldCheckIcon,
+  KeyIcon,
+  BuildingOfficeIcon
 } from '@heroicons/react/24/outline';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { TextArea } from '../ui/TextArea';
 import LoadingSpinner from '../ui/LoadingSpinner';
+import { useUserProfile } from '../../hooks/useUserProfile';
 
 interface StaffMember {
   id: string;
@@ -72,6 +81,12 @@ interface StaffMember {
   notes?: string;
   createdAt: Date;
   updatedAt: Date;
+  // Admin promotion tracking fields
+  hasAdminAccount?: boolean;
+  adminUserId?: string;
+  promotedToAdmin?: boolean;
+  promotedAt?: Date;
+  promotedBy?: string;
 }
 
 interface StaffFormData {
@@ -159,6 +174,7 @@ const provinces = [
 ];
 
 export function StaffManagement() {
+  const { profile: currentUserProfile } = useUserProfile();
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -179,8 +195,17 @@ export function StaffManagement() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
 
+  // Staff-to-Admin conversion state
+  const [promotingStaff, setPromotingStaff] = useState<string | null>(null);
+  const [showPromoteConfirm, setShowPromoteConfirm] = useState<StaffMember | null>(null);
+  const [promotionError, setPromotionError] = useState<string | null>(null);
+
+  // Password management state
+  const [showPasswordReset, setShowPasswordReset] = useState<StaffMember | null>(null);
+  const [resettingPassword, setResettingPassword] = useState<string | null>(null);
+
   // Form data state
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<StaffFormData>({
     firstName: '',
     lastName: '',
     email: '',
@@ -192,7 +217,7 @@ export function StaffManagement() {
     status: 'active' as 'active' | 'inactive' | 'on-leave',
     hireDate: '',
     centre: '',
-    centreIds: [],
+    centreIds: [] as string[],
     emergencyContactName: '',
     emergencyContactPhone: '',
     emergencyContactRelationship: '',
@@ -480,9 +505,21 @@ export function StaffManagement() {
     }
   };
 
-  // Handle centre selection
+  // Handle centre selection - now supports multiple selections
   const handleCentreSelect = (centre: TreatmentCentre) => {
-    setFormData(prev => ({ ...prev, centre: centre.name, centreIds: centre.staffAssigned }));
+    // Check if centre is already selected
+    if (formData.centreIds.includes(centre.id)) {
+      // Centre already selected, show message or do nothing
+      return;
+    }
+    
+    // Add centre to the selection
+    setFormData(prev => ({ 
+      ...prev, 
+      centreIds: [...prev.centreIds, centre.id],
+      // Update legacy centre field with first centre name for backward compatibility
+      centre: prev.centreIds.length === 0 ? centre.name : prev.centre
+    }));
     setShowCentresLookup(false);
   };
 
@@ -567,6 +604,135 @@ export function StaffManagement() {
     setPhotoFile(null);
     setPhotoPreview(null);
   };
+
+  // Staff-to-Admin conversion function
+  const promoteStaffToAdmin = async (staffMember: StaffMember) => {
+    if (!currentUserProfile || currentUserProfile.role !== 'super-admin') {
+      setPromotionError('Only super-admins can promote staff to admin');
+      return;
+    }
+
+    setPromotingStaff(staffMember.id);
+    setPromotionError(null);
+
+    try {
+      // Generate a temporary password
+      const tempPassword = `TempAdmin${Math.random().toString(36).slice(2)}${Date.now()}`;
+
+      // Create Firebase Auth account
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        staffMember.email,
+        tempPassword
+      );
+
+      // Send email verification
+      await sendEmailVerification(userCredential.user);
+
+      // Send password reset email so admin can set their own password
+      await sendPasswordResetEmail(auth, staffMember.email);
+
+      // Create user profile in Firestore
+      await setDoc(doc(db, 'users', userCredential.user.uid), {
+        id: userCredential.user.uid,
+        email: staffMember.email,
+        firstName: staffMember.firstName,
+        lastName: staffMember.lastName,
+        role: 'admin',
+        avatar: staffMember.photoUrl || null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Create admin profile
+      await setDoc(doc(db, 'adminProfiles', userCredential.user.uid), {
+        id: userCredential.user.uid,
+        email: staffMember.email,
+        firstName: staffMember.firstName,
+        lastName: staffMember.lastName,
+        role: 'admin',
+        specializations: staffMember.specializations || [],
+        credentials: staffMember.qualifications || [],
+        bio: `Promoted from ${staffMember.position} in ${staffMember.department}`,
+        experience: 0,
+        clients: [],
+        availability: [],
+        permissions: {
+          canCreateAdmins: false,
+          canDeleteAdmins: false,
+          canManageSystem: false,
+          canViewAllData: false,
+        },
+        settings: {
+          appointmentDuration: 60,
+          bufferTime: 15,
+          maxDailyAppointments: 8,
+          autoAcceptBookings: false,
+        },
+        centreIds: staffMember.centreIds || [],
+        originalStaffId: staffMember.id,
+        promotedAt: new Date(),
+        promotedBy: currentUserProfile.id,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Update staff record to mark as promoted but keep active
+      await updateDoc(doc(db, 'staff', staffMember.id), {
+        // Keep original status - don't change to inactive
+        hasAdminAccount: true, // Flag to show they have admin access
+        adminUserId: userCredential.user.uid,
+        notes: `${staffMember.notes || ''}\n\nPromoted to Admin on ${new Date().toLocaleDateString()} by ${currentUserProfile.firstName} ${currentUserProfile.lastName}. Staff member retains original role with admin privileges.`,
+        promotedToAdmin: true,
+        promotedAt: new Date(),
+        promotedBy: currentUserProfile.id,
+        updatedAt: new Date()
+      });
+
+      console.log('✅ Staff member promoted to admin successfully');
+      setShowPromoteConfirm(null);
+    } catch (error: any) {
+      console.error('❌ Error promoting staff to admin:', error);
+      let errorMessage = 'Failed to promote staff to admin. Please try again.';
+      
+      if (error.code === 'auth/email-already-in-use') {
+        errorMessage = 'An account with this email already exists. The staff member may already have an admin account.';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email address.';
+      } else if (error.code === 'auth/weak-password') {
+        errorMessage = 'Password is too weak.';
+      }
+      
+      setPromotionError(errorMessage);
+    } finally {
+      setPromotingStaff(null);
+    }
+  };
+
+  // Password reset function
+  const resetStaffPassword = async (staffMember: StaffMember) => {
+    if (!currentUserProfile || currentUserProfile.role !== 'super-admin') {
+      setPromotionError('Only super-admins can reset passwords');
+      return;
+    }
+
+    setResettingPassword(staffMember.id);
+    setPromotionError(null);
+
+    try {
+      await sendPasswordResetEmail(auth, staffMember.email);
+      console.log('✅ Password reset email sent successfully');
+      setShowPasswordReset(null);
+    } catch (error: any) {
+      console.error('❌ Error sending password reset email:', error);
+      setPromotionError('Failed to send password reset email. Please try again.');
+    } finally {
+      setResettingPassword(null);
+    }
+  };
+
+  // Check if user is super admin
+  const isSuperAdmin = currentUserProfile?.role === 'super-admin';
 
   const statusCounts = {
     active: staff.filter(s => s.status === 'active').length,
@@ -684,12 +850,12 @@ export function StaffManagement() {
             <Card key={member.id} className="hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start">
                 <div className="flex-1">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 rounded-full overflow-hidden">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-center">
+                      <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 mr-3">
                         {member.photoUrl ? (
-                          <img
-                            src={member.photoUrl}
+                          <img 
+                            src={member.photoUrl} 
                             alt={`${member.firstName} ${member.lastName}`}
                             className="w-full h-full object-cover"
                           />
@@ -708,9 +874,17 @@ export function StaffManagement() {
                         <p className="text-gray-600">{member.position} • {member.department}</p>
                       </div>
                     </div>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(member.status)}`}>
-                      {member.status === 'on-leave' ? 'On Leave' : member.status.charAt(0).toUpperCase() + member.status.slice(1)}
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      {member.hasAdminAccount && (
+                        <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium flex items-center">
+                          <ShieldCheckIcon className="w-3 h-3 mr-1" />
+                          Admin
+                        </span>
+                      )}
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(member.status)}`}>
+                        {member.status === 'on-leave' ? 'On Leave' : member.status.charAt(0).toUpperCase() + member.status.slice(1)}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600 mb-4">
@@ -724,6 +898,37 @@ export function StaffManagement() {
                       <strong>Hire Date:</strong> {member.hireDate.toLocaleDateString()}
                     </div>
                   </div>
+
+                  {/* Assigned Centres */}
+                  {(member.centreIds && member.centreIds.length > 0) || member.centre ? (
+                    <div className="mb-4">
+                      <strong className="text-gray-700">Assigned Centres:</strong>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {/* Show new centreIds array */}
+                        {member.centreIds && member.centreIds.length > 0 ? (
+                          member.centreIds.map((centreId, index) => {
+                            const centre = centres.find(c => c.id === centreId);
+                            return (
+                              <span key={centreId} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                                {centre?.name || `Centre ${index + 1}`}
+                              </span>
+                            );
+                          })
+                        ) : (
+                          /* Fallback to legacy centre field */
+                          member.centre && (
+                            <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                              {member.centre} (Legacy)
+                            </span>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mb-4">
+                      <span className="text-sm text-gray-500 italic">No centres assigned</span>
+                    </div>
+                  )}
 
                   {member.qualifications.length > 0 && (
                     <div className="mb-2">
@@ -747,6 +952,42 @@ export function StaffManagement() {
                   >
                     <PencilIcon className="w-4 h-4" />
                   </Button>
+                  
+                  {/* Super Admin Only Actions */}
+                  {isSuperAdmin && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowPromoteConfirm(member)}
+                        className="text-purple-600 hover:text-purple-700"
+                        disabled={promotingStaff === member.id || member.hasAdminAccount}
+                        title={member.hasAdminAccount ? "Already has admin account" : "Promote to Admin"}
+                      >
+                        {promotingStaff === member.id ? (
+                          <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <ShieldCheckIcon className="w-4 h-4" />
+                        )}
+                      </Button>
+                      
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowPasswordReset(member)}
+                        className="text-blue-600 hover:text-blue-700"
+                        disabled={resettingPassword === member.id}
+                        title="Send Password Reset Email"
+                      >
+                        {resettingPassword === member.id ? (
+                          <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <KeyIcon className="w-4 h-4" />
+                        )}
+                      </Button>
+                    </>
+                  )}
+                  
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1023,33 +1264,94 @@ export function StaffManagement() {
                   </div>
                 </div>
 
+                {/* Centre Assignment */}
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Centre Assignment</h3>
+                  <div className="space-y-4">
+                    {/* Currently Selected Centres */}
+                    {formData.centreIds.length > 0 && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Assigned Centres ({formData.centreIds.length})
+                        </label>
+                        <div className="space-y-2">
+                          {formData.centreIds.map((centreId, index) => {
+                            const centre = centres.find(c => c.id === centreId);
+                            return (
+                              <div key={centreId} className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                <div className="flex items-center">
+                                  <BuildingOfficeIcon className="w-5 h-5 text-blue-600 mr-3" />
+                                  <div>
+                                    <p className="font-medium text-blue-900">
+                                      {centre?.name || `Centre ${index + 1}`}
+                                    </p>
+                                    {centre && (
+                                      <p className="text-sm text-blue-600">
+                                        {centre.address.city}, {centre.address.province}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    const updatedCentreIds = formData.centreIds.filter(id => id !== centreId);
+                                    setFormData(prev => ({ ...prev, centreIds: updatedCentreIds }));
+                                  }}
+                                  className="text-red-600 hover:text-red-700"
+                                >
+                                  <XMarkIcon className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Add Centre Button */}
+                    <div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setShowCentresLookup(true);
+                          loadCentres();
+                        }}
+                        className="w-full sm:w-auto"
+                      >
+                        <PlusIcon className="w-4 h-4 mr-2" />
+                        {formData.centreIds.length === 0 ? 'Assign Centres' : 'Add Another Centre'}
+                      </Button>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Staff can be assigned to multiple treatment centres
+                      </p>
+                    </div>
+
+                    {/* Legacy single centre field for backward compatibility */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Primary Centre (Legacy)
+                      </label>
+                      <Input
+                        value={formData.centre}
+                        onChange={(e) => handleInputChange('centre', e.target.value)}
+                        placeholder="Primary centre name (optional)"
+                        className="w-full"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        This field is kept for backward compatibility. Use the centre assignment above instead.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Additional Information */}
                 <div>
                   <h3 className="text-lg font-medium text-gray-900 mb-4">Additional Information</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Treatment Centre</label>
-                      <div className="flex space-x-2">
-                        <Input
-                          value={formData.centre}
-                          onChange={(e) => handleInputChange('centre', e.target.value)}
-                          placeholder="Optional: Assigned treatment centre"
-                          className="flex-1"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            setShowCentresLookup(true);
-                            loadCentres();
-                          }}
-                          className="px-3"
-                          title="Browse Treatment Centres"
-                        >
-                          <LinkIcon className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
                     <Input
                       label="Salary (Optional)"
                       type="number"
@@ -1134,52 +1436,53 @@ export function StaffManagement() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {centres.map((centre) => (
-                    <Card key={centre.id} className="hover:shadow-md transition-shadow cursor-pointer">
-                      <div 
-                        className="p-4"
-                        onClick={() => handleCentreSelect(centre)}
+                  {centres.map((centre) => {
+                    const isSelected = formData.centreIds.includes(centre.id);
+                    return (
+                      <Card 
+                        key={centre.id} 
+                        className={`transition-shadow ${
+                          isSelected 
+                            ? 'opacity-50 bg-gray-50 border-gray-300 cursor-not-allowed' 
+                            : 'hover:shadow-md cursor-pointer'
+                        }`}
                       >
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                              {centre.name}
-                            </h3>
-                            <div className="text-sm text-gray-600 space-y-1">
-                              <div className="flex items-center">
-                                <MapPinIcon className="w-4 h-4 mr-2" />
-                                {centre.address.street}, {centre.address.suburb}, {centre.address.city}
-                              </div>
-                              <div className="flex items-center">
-                                <PhoneIcon className="w-4 h-4 mr-2" />
-                                {centre.contactInfo.phone}
-                              </div>
-                              <div className="flex items-center">
-                                <UserIcon className="w-4 h-4 mr-2" />
-                                Manager: {centre.contactInfo.managerName}
-                              </div>
-                              {centre.staffAssigned && centre.staffAssigned.length > 0 && (
-                                <div className="mt-2">
-                                  <span className="text-xs font-medium text-gray-500">
-                                    Staff Assigned: {centre.staffAssigned.length}
+                        <div 
+                          className="p-4"
+                          onClick={() => !isSelected && handleCentreSelect(centre)}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <div className="flex items-center mb-2">
+                                <h3 className="text-lg font-semibold text-gray-900">
+                                  {centre.name}
+                                </h3>
+                                {isSelected && (
+                                  <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+                                    ✓ Selected
                                   </span>
+                                )}
+                              </div>
+                              <div className="text-sm text-gray-600 space-y-1">
+                                <div className="flex items-center">
+                                  <MapPinIcon className="w-4 h-4 mr-2" />
+                                  {centre.address.street}, {centre.address.suburb}, {centre.address.city}
                                 </div>
-                              )}
+                                <div className="flex items-center">
+                                  <PhoneIcon className="w-4 h-4 mr-2" />
+                                  {centre.contactInfo.phone}
+                                </div>
+                                <div className="flex items-center">
+                                  <UserIcon className="w-4 h-4 mr-2" />
+                                  Manager: {centre.contactInfo.managerName}
+                                </div>
+                              </div>
                             </div>
                           </div>
-                          <div className="ml-4">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              centre.isActive 
-                                ? 'text-green-800 bg-green-100' 
-                                : 'text-red-800 bg-red-100'
-                            }`}>
-                              {centre.isActive ? 'Active' : 'Inactive'}
-                            </span>
-                          </div>
                         </div>
-                      </div>
-                    </Card>
-                  ))}
+                      </Card>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1237,6 +1540,154 @@ export function StaffManagement() {
                     Capture Photo
                   </Button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Promote to Admin Confirmation Modal */}
+      {showPromoteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center mb-4">
+                <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mr-4">
+                  <ShieldCheckIcon className="w-6 h-6 text-purple-600" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Promote to Admin</h2>
+                  <p className="text-sm text-gray-600">This action will create an admin account</p>
+                </div>
+              </div>
+
+              <div className="mb-6">
+                <p className="text-gray-700 mb-4">
+                  You are about to promote <strong>{showPromoteConfirm.firstName} {showPromoteConfirm.lastName}</strong> to admin status.
+                </p>
+                
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                  <h4 className="font-medium text-yellow-800 mb-2">What will happen:</h4>
+                  <ul className="text-sm text-yellow-700 space-y-1 list-disc list-inside">
+                    <li>Create admin account with email: <strong>{showPromoteConfirm.email}</strong></li>
+                    <li>Send password setup email to the staff member</li>
+                    <li>Copy qualifications and specializations to admin profile</li>
+                    <li>Staff member retains current role with additional admin privileges</li>
+                    <li>Assign to centres: {showPromoteConfirm.centreIds?.length || 0} centre(s)</li>
+                  </ul>
+                </div>
+
+                {promotionError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                    <div className="flex items-center">
+                      <ExclamationTriangleIcon className="w-5 h-5 text-red-500 mr-2" />
+                      <span className="text-red-700 text-sm">{promotionError}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end space-x-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowPromoteConfirm(null);
+                    setPromotionError(null);
+                  }}
+                  disabled={promotingStaff === showPromoteConfirm.id}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => promoteStaffToAdmin(showPromoteConfirm)}
+                  disabled={promotingStaff === showPromoteConfirm.id}
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  {promotingStaff === showPromoteConfirm.id ? (
+                    <>
+                      <ArrowPathIcon className="w-4 h-4 mr-2 animate-spin" />
+                      Promoting...
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheckIcon className="w-4 h-4 mr-2" />
+                      Promote to Admin
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Password Reset Confirmation Modal */}
+      {showPasswordReset && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center mb-4">
+                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mr-4">
+                  <KeyIcon className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Send Password Reset</h2>
+                  <p className="text-sm text-gray-600">Email password reset link</p>
+                </div>
+              </div>
+
+              <div className="mb-6">
+                <p className="text-gray-700 mb-4">
+                  Send a password reset email to <strong>{showPasswordReset.firstName} {showPasswordReset.lastName}</strong>?
+                </p>
+                
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                  <h4 className="font-medium text-blue-800 mb-2">What will happen:</h4>
+                  <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
+                    <li>Password reset email sent to: <strong>{showPasswordReset.email}</strong></li>
+                    <li>Staff member can click the link to set a new password</li>
+                    <li>Link expires in 24 hours for security</li>
+                  </ul>
+                </div>
+
+                {promotionError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                    <div className="flex items-center">
+                      <ExclamationTriangleIcon className="w-5 h-5 text-red-500 mr-2" />
+                      <span className="text-red-700 text-sm">{promotionError}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end space-x-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowPasswordReset(null);
+                    setPromotionError(null);
+                  }}
+                  disabled={resettingPassword === showPasswordReset.id}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => resetStaffPassword(showPasswordReset)}
+                  disabled={resettingPassword === showPasswordReset.id}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  {resettingPassword === showPasswordReset.id ? (
+                    <>
+                      <ArrowPathIcon className="w-4 h-4 mr-2 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <KeyIcon className="w-4 h-4 mr-2" />
+                      Send Reset Email
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
           </div>

@@ -130,11 +130,11 @@
   
   /* Content Layout */
   .main-content {
-    @apply ml-64 min-h-screen bg-gray-50 w-full;
+    @apply min-h-screen bg-gray-50 w-full;
   }
   
   .page-container {
-    @apply p-8 w-full;
+    @apply p-4 sm:p-6 lg:p-8 w-full max-w-none;
   }
   
   .page-header {

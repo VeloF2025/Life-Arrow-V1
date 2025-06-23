@@ -25,7 +25,6 @@ export default function ClientDashboard() {
   const navigate = useNavigate();
   const { profile, loading } = useUserProfile();
   const profileCompletion = useProfileCompletion();
-  const [activeSection, setActiveSection] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleLogout = async () => {
@@ -114,34 +113,18 @@ export default function ClientDashboard() {
 
   return (
     <div className="flex min-h-screen w-full bg-gray-50">
-      {/* Mobile Sidebar Overlay */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
       {/* Sidebar */}
-      <div className={`sidebar ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 transition-transform duration-300 ease-in-out z-50 lg:static lg:z-auto`}>
+      <div className="sidebar">
         {/* Logo/Header */}
         <div className="sidebar-header">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center">
-                <HeartIcon className="w-6 h-6 text-white" />
-              </div>
-              <div className="ml-3">
-                <h1 className="text-lg font-semibold text-white">Life Arrow</h1>
-                <p className="text-xs text-gray-400">Wellness Platform</p>
-              </div>
+          <div className="flex items-center">
+            <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center">
+              <HeartIcon className="w-6 h-6 text-white" />
             </div>
-            <button
-              onClick={() => setSidebarOpen(false)}
-              className="lg:hidden text-gray-400 hover:text-white"
-            >
-              <XMarkIcon className="w-6 h-6" />
-            </button>
+            <div className="ml-3">
+              <h1 className="text-lg font-semibold text-white">Life Arrow</h1>
+              <p className="text-xs text-gray-400">Wellness Platform</p>
+            </div>
           </div>
         </div>
 
@@ -152,10 +135,7 @@ export default function ClientDashboard() {
             return (
               <div
                 key={item.id}
-                onClick={() => {
-                  setActiveSection(item.id);
-                  setSidebarOpen(false); // Close mobile sidebar on item click
-                }}
+                onClick={() => setActiveSection(item.id)}
                 className={
                   activeSection === item.id ? 'sidebar-item-active' : 'sidebar-item'
                 }
@@ -189,26 +169,17 @@ export default function ClientDashboard() {
       <div className="main-content flex-1">
         {/* Header */}
         <header className="main-header">
-          <div className="px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <div className="flex items-center space-x-4">
-              {/* Mobile Menu Button */}
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="lg:hidden p-2 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-              >
-                <Bars3Icon className="w-6 h-6" />
-              </button>
-              <div>
-                <h1 className="text-xl sm:text-2xl font-bold text-gray-900">My Wellness Dashboard</h1>
-                <p className="hidden sm:block text-gray-600">Welcome back, {profile?.firstName || 'Client'}! Ready to continue your wellness journey?</p>
-              </div>
+          <div className="px-8 py-4 flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">My Wellness Dashboard</h1>
+              <p className="text-gray-600">Welcome back, {profile?.firstName || 'Client'}! Ready to continue your wellness journey?</p>
             </div>
-            <div className="flex items-center space-x-2 sm:space-x-4">
-              <div className="hidden sm:block text-right">
+            <div className="flex items-center space-x-4">
+              <div className="text-right">
                 <p className="text-sm font-medium text-gray-900">R ZAR</p>
               </div>
               <div className="w-8 h-8 bg-primary-500 rounded-full"></div>
-              <div className="hidden sm:block">
+              <div>
                 <p className="text-sm font-medium text-gray-900">{profile?.firstName || 'Client'} {profile?.lastName || 'Test'}</p>
                 <p className="text-xs text-gray-500">Client Member</p>
               </div>
@@ -222,8 +193,9 @@ export default function ClientDashboard() {
           </div>
         </header>
 
-        {/* Page Content */}
-        <div className="page-container">
+        {/* Page Content - Let page-container handle padding */}
+        <div className="w-full">
+          <div className="page-container">
           {activeSection === 'overview' && (
             <div className="space-y-8">
               {/* Profile Completion Banner */}
@@ -257,7 +229,7 @@ export default function ClientDashboard() {
               <div className="welcome-banner">
                 <div className="flex justify-between items-center">
                   <div>
-                    <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">
+                    <h1 className="text-3xl font-bold text-white mb-2">
                       Great to see you, {profile?.firstName || 'Client'}!
                     </h1>
                     <p className="text-primary-100">Today is {currentDate}</p>
@@ -340,9 +312,7 @@ export default function ClientDashboard() {
                         <p className="text-sm font-medium text-gray-900">Complete wellness assessment</p>
                         <p className="text-xs text-gray-500">Due: Tomorrow</p>
                       </div>
-                      <span className="bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded-full">
-                        Pending
-                      </span>
+                      <span className="badge-warning">Pending</span>
                     </div>
 
                     <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
@@ -350,19 +320,15 @@ export default function ClientDashboard() {
                         <p className="text-sm font-medium text-gray-900">Log daily meals</p>
                         <p className="text-xs text-gray-500">Due: Today</p>
                       </div>
-                      <span className="bg-red-100 text-red-800 text-xs px-2 py-1 rounded-full">
-                        Overdue
-                      </span>
+                      <span className="badge-error">Overdue</span>
                     </div>
 
                     <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                       <div>
-                        <p className="text-sm font-medium text-gray-900">Weekly check-in</p>
-                        <p className="text-xs text-gray-500">Due: Friday</p>
+                        <p className="text-sm font-medium text-gray-900">Schedule monthly check-in</p>
+                        <p className="text-xs text-gray-500">Due: Next week</p>
                       </div>
-                      <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">
-                        Upcoming
-                      </span>
+                      <span className="badge-info">Upcoming</span>
                     </div>
                   </div>
                 </div>
@@ -370,101 +336,73 @@ export default function ClientDashboard() {
             </div>
           )}
 
-          {activeSection === 'profile' && (
-            <div className="card">
-              <div className="p-6 border-b border-gray-200">
-                <h2 className="text-xl font-semibold text-gray-900">Profile Management</h2>
-                <p className="text-gray-600 mt-1">Manage your personal information and preferences</p>
-              </div>
-              <div className="p-6">
-                <ProfileManagement />
-              </div>
-            </div>
-          )}
-
-          {activeSection === 'profile-completion' && (
-            <div className="card">
-              <div className="p-6 border-b border-gray-200">
-                <h2 className="text-xl font-semibold text-gray-900">Complete Your Profile</h2>
-                <p className="text-gray-600 mt-1">Please provide additional information to enhance your experience</p>
-              </div>
-              <div className="p-6">
-                <ProfileCompletionForm onSuccess={handleProfileCompletionSuccess} />
-              </div>
-            </div>
-          )}
-
+          {/* Other sections would go here */}
           {activeSection === 'appointments' && (
-            <div className="card">
-              <div className="text-center py-12">
-                <CalendarDaysIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">My Appointments</h2>
-                <p className="text-gray-600">Your appointment history and upcoming bookings will appear here.</p>
-              </div>
+            <div className="card p-8 text-center">
+              <CalendarDaysIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">Appointments</h2>
+              <p className="text-gray-600">Your appointment management will appear here.</p>
             </div>
           )}
 
           {activeSection === 'health-metrics' && (
-            <div className="card">
-              <div className="text-center py-12">
-                <HeartIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">Health Metrics</h2>
-                <p className="text-gray-600">Track your health metrics and progress over time.</p>
-              </div>
+            <div className="card p-8 text-center">
+              <HeartIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">Health Metrics</h2>
+              <p className="text-gray-600">Your health tracking and metrics will appear here.</p>
             </div>
           )}
 
           {activeSection === 'goals' && (
-            <div className="card">
-              <div className="text-center py-12">
-                <TrophyIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">My Goals</h2>
-                <p className="text-gray-600">Set and track your wellness goals and achievements.</p>
-              </div>
+            <div className="card p-8 text-center">
+              <TrophyIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">My Goals</h2>
+              <p className="text-gray-600">Your wellness goals and progress will appear here.</p>
             </div>
           )}
 
           {activeSection === 'assessments' && (
-            <div className="card">
-              <div className="text-center py-12">
-                <ClipboardDocumentListIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">Assessments</h2>
-                <p className="text-gray-600">Complete health assessments and view your results.</p>
-              </div>
+            <div className="card p-8 text-center">
+              <ClipboardDocumentListIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">Assessments</h2>
+              <p className="text-gray-600">Your wellness assessments will appear here.</p>
             </div>
           )}
 
           {activeSection === 'sessions' && (
-            <div className="card">
-              <div className="text-center py-12">
-                <BookOpenIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">Session Notes</h2>
-                <p className="text-gray-600">Your session notes and treatment history will appear here.</p>
-              </div>
+            <div className="card p-8 text-center">
+              <BookOpenIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">Session Notes</h2>
+              <p className="text-gray-600">Your session notes and treatment history will appear here.</p>
             </div>
           )}
 
           {activeSection === 'messages' && (
-            <div className="card">
-              <div className="text-center py-12">
-                <ChatBubbleLeftRightIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">Messages</h2>
-                <p className="text-gray-600">Communicate with your healthcare providers and support team.</p>
-              </div>
+            <div className="card p-8 text-center">
+              <ChatBubbleLeftRightIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">Messages</h2>
+              <p className="text-gray-600">Your messages with healthcare providers will appear here.</p>
             </div>
           )}
 
+          {activeSection === 'profile' && (
+            <ProfileManagement onNavigateToCompletion={handleCompleteProfile} />
+          )}
+
           {activeSection === 'settings' && (
-            <div className="card">
-              <div className="text-center py-12">
-                <CogIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">Settings</h2>
-                <p className="text-gray-600">Manage your account settings and preferences.</p>
-              </div>
+            <div className="card p-8 text-center">
+              <CogIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">Settings</h2>
+              <p className="text-gray-600">Your account settings will appear here.</p>
             </div>
+          )}
+
+          {activeSection === 'profile-completion' && (
+            <ProfileCompletionForm onComplete={handleProfileCompletionSuccess} />
           )}
         </div>
       </div>
     </div>
   );
 } 
+  const [activeSection, setActiveSection] = useState('overview');

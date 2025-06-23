@@ -571,6 +571,8 @@ export interface BookingData {
   staff: StaffMember;
   timeSlot: TimeSlot;
   clientId?: string; // For admin bookings
+  clientName?: string; // For admin bookings - client display name
+  clientEmail?: string; // For admin bookings - client email
   clientNotes?: string; // Optional notes from client
 }
 

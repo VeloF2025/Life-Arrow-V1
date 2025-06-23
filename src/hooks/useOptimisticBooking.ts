@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { collection, addDoc, doc, updateDoc, serverTimestamp, runTransaction } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, getDoc, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useUserProfile } from './useUserProfile';
 import type { BookingData, Appointment } from '../types';
@@ -14,31 +14,48 @@ export const useOptimisticBooking = () => {
         throw new Error('User not authenticated');
       }
 
+      // Determine the actual client ID - use provided clientId for admin bookings, otherwise use current user
+      const actualClientId = bookingData.clientId || profile.id;
+      
+      // For admin bookings, we need to get client details from the database
+      let clientName = `${profile.firstName} ${profile.lastName}`;
+      let clientEmail = profile.email;
+      
+      if (bookingData.clientId && bookingData.clientId !== profile.id) {
+        // This is an admin booking for another client - get client details
+        // For now, we'll use the provided data or fallback
+        // TODO: Optionally fetch full client details from database if needed
+        clientName = bookingData.clientName || 'Unknown Client';
+        clientEmail = bookingData.clientEmail || '';
+      }
+
       // Create the appointment using a transaction to ensure consistency
       const appointment = await runTransaction(db, async (transaction) => {
         // Check if time slot is still available
         const appointmentsRef = collection(db, 'appointments');
         
         const appointmentData = {
-          clientId: profile.id,
+          clientId: actualClientId,
           centreId: bookingData.centre.id,
           serviceId: bookingData.service.id,
           staffId: bookingData.timeSlot.staffId,
           startTime: bookingData.timeSlot.startTime,
           endTime: bookingData.timeSlot.endTime,
+          dateTime: bookingData.timeSlot.startTime,
+          duration: bookingData.service.duration,
           status: 'scheduled' as const,
           notes: bookingData.clientNotes || '',
           price: bookingData.service.price,
           
           // Denormalized data for performance
-          clientName: `${profile.firstName} ${profile.lastName}`,
-          clientEmail: profile.email,
-          clientPhone: '', // TODO: Get from profile
+          clientName: clientName,
+          clientEmail: clientEmail,
+          clientPhone: '', // TODO: Get from client profile when available
           serviceName: bookingData.service.name,
           staffName: bookingData.timeSlot.staffName,
           centreName: bookingData.centre.name,
           
-          // Audit fields
+          // Audit fields - always use current user (admin) for created/modified by
           createdBy: profile.id,
           lastModifiedBy: profile.id,
           createdAt: serverTimestamp(),
@@ -82,19 +99,31 @@ export const useOptimisticBooking = () => {
 
       // Optimistically add appointment to list
       if (profile) {
+        // Determine client details for optimistic update
+        const actualClientId = bookingData.clientId || profile.id;
+        let clientName = `${profile.firstName} ${profile.lastName}`;
+        let clientEmail = profile.email;
+        
+        if (bookingData.clientId && bookingData.clientId !== profile.id) {
+          clientName = bookingData.clientName || 'Unknown Client';
+          clientEmail = bookingData.clientEmail || '';
+        }
+
         const optimisticAppointment: Appointment = {
           id: 'temp-' + Date.now(),
-          clientId: profile.id,
+          clientId: actualClientId,
           centreId: bookingData.centre.id,
           serviceId: bookingData.service.id,
           staffId: bookingData.timeSlot.staffId,
           startTime: bookingData.timeSlot.startTime,
           endTime: bookingData.timeSlot.endTime,
+          dateTime: bookingData.timeSlot.startTime,
+          duration: bookingData.service.duration,
           status: 'scheduled',
           notes: bookingData.clientNotes || '',
           price: bookingData.service.price,
-          clientName: `${profile.firstName} ${profile.lastName}`,
-          clientEmail: profile.email,
+          clientName: clientName,
+          clientEmail: clientEmail,
           clientPhone: '',
           serviceName: bookingData.service.name,
           staffName: bookingData.timeSlot.staffName,
@@ -164,26 +193,49 @@ export const useAppointmentActions = () => {
       reason 
     }: { 
       appointmentId: string; 
-      newTimeSlot: any; 
+      newTimeSlot: {
+        startTime: Date;
+        endTime: Date;
+        staffId: string;
+        staffName: string;
+      }; 
       reason: string; 
     }) => {
       if (!profile) throw new Error('User not authenticated');
 
       const appointmentRef = doc(db, 'appointments', appointmentId);
       
+      // Get current appointment data to preserve in history
+      const currentAppointment = await getDoc(appointmentRef);
+      if (!currentAppointment.exists()) {
+        throw new Error('Appointment not found');
+      }
+      
+      const currentData = currentAppointment.data();
+      
       await updateDoc(appointmentRef, {
         startTime: newTimeSlot.startTime,
         endTime: newTimeSlot.endTime,
+        dateTime: newTimeSlot.startTime, // Update dateTime field for compatibility
         staffId: newTimeSlot.staffId,
         staffName: newTimeSlot.staffName,
-        status: 'rescheduled',
+        status: 'scheduled', // Reset to scheduled instead of rescheduled
         lastModifiedBy: profile.id,
         updatedAt: serverTimestamp(),
         rescheduleHistory: [
+          ...(currentData.rescheduleHistory || []),
           {
-            previousStartTime: new Date(), // TODO: Get from current appointment
+            previousStartTime: currentData.startTime,
+            previousEndTime: currentData.endTime,
+            previousStaffId: currentData.staffId,
+            previousStaffName: currentData.staffName,
+            newStartTime: newTimeSlot.startTime,
+            newEndTime: newTimeSlot.endTime,
+            newStaffId: newTimeSlot.staffId,
+            newStaffName: newTimeSlot.staffName,
             reason,
-            timestamp: new Date()
+            rescheduledBy: profile.id,
+            rescheduledAt: new Date()
           }
         ]
       });
@@ -191,6 +243,10 @@ export const useAppointmentActions = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       queryClient.invalidateQueries({ queryKey: ['timeslots'] });
+      queryClient.invalidateQueries({ queryKey: ['user-appointments'] });
+    },
+    onError: (error) => {
+      console.error('Reschedule failed:', error);
     }
   });
 

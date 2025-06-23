@@ -116,7 +116,19 @@ const ClientAppointmentInterface = ({ isAdminMode = false, preSelectedClientId, 
   };
 
   const handleTimeSlotSelect = (timeSlot: TimeSlot) => {
-    setBookingData(prev => ({ ...prev, timeSlot }));
+    // Include client information for admin bookings
+    const updatedBookingData = { 
+      ...bookingData, 
+      timeSlot,
+      // Add client information for admin bookings
+      ...(isAdminMode && selectedClient && {
+        clientId: selectedClient.id,
+        clientName: selectedClient.name,
+        clientEmail: selectedClient.email
+      })
+    };
+    
+    setBookingData(updatedBookingData);
     setBookingStep(5);
   };
 

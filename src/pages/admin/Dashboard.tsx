@@ -19,12 +19,13 @@ import {
   ClipboardDocumentListIcon,
   BuildingOfficeIcon,
   HeartIcon,
-  CodeBracketIcon
+  CodeBracketIcon,
+  Bars3Icon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import UserRoleManager from '../../components/admin/UserRoleManager';
 import CreateAdminForm from '../../components/forms/CreateAdminForm';
 import { elevateCurrentUserToSuperAdmin } from '../../utils/elevateCurrentUser';
-import { useNavigate } from 'react-router-dom';
 
 // Import the new management components
 import { ServicesManagement } from '../../components/admin/ServicesManagement';
@@ -33,7 +34,6 @@ import { ClientsManagement } from '../../components/admin/ClientsManagement';
 import { StaffManagement } from '../../components/admin/StaffManagement';
 import { AdminSetup } from '../../components/admin/AdminSetup';
 import AuditPage from './AuditPage';
-import AdminCentreInterface from '../../components/appointments/AdminCentreInterface';
 import ClientAppointmentInterface from '../../components/appointments/ClientAppointmentInterface';
 import SystemLogsViewer from '../../components/admin/SystemLogsViewer';
 
@@ -41,20 +41,16 @@ type AdminSection = 'overview' | 'clients' | 'appointments' | 'services' | 'cent
 
 export function Dashboard() {
   const { profile, loading } = useUserProfile();
-  const navigate = useNavigate();
   const [showUserRoles, setShowUserRoles] = useState(false);
   const [showCreateAdmin, setShowCreateAdmin] = useState(false);
   const [showAdminSetup, setShowAdminSetup] = useState(false);
   const [activeSection, setActiveSection] = useState<AdminSection>('overview');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const isSuperAdmin = profile?.role === 'super-admin';
 
   const handleLogout = async () => {
     await signOut(auth);
-  };
-
-  const handleBookAppointment = () => {
-    navigate('/appointments');
   };
 
   if (loading) {
@@ -400,19 +396,35 @@ export function Dashboard() {
   );
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen w-full bg-gray-50">
+      {/* Mobile Sidebar Overlay */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <div className="sidebar">
+      <div className={`sidebar ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 transition-transform duration-300 ease-in-out z-50 lg:static lg:z-auto`}>
         {/* Logo/Header */}
         <div className="sidebar-header">
-          <div className="flex items-center">
-            <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center">
-              <ChartPieIcon className="w-6 h-6 text-white" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center">
+                <ChartPieIcon className="w-6 h-6 text-white" />
+              </div>
+              <div className="ml-3">
+                <h1 className="text-lg font-semibold text-white">Life Arrow</h1>
+                <p className="text-xs text-gray-400">Admin Portal</p>
+              </div>
             </div>
-            <div className="ml-3">
-              <h1 className="text-lg font-semibold text-white">Life Arrow</h1>
-              <p className="text-xs text-gray-400">Admin Portal</p>
-            </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="lg:hidden text-gray-400 hover:text-white"
+            >
+              <XMarkIcon className="w-6 h-6" />
+            </button>
           </div>
         </div>
 
@@ -425,7 +437,10 @@ export function Dashboard() {
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveSection(item.id as AdminSection)}
+                onClick={() => {
+                  setActiveSection(item.id as AdminSection);
+                  setSidebarOpen(false); // Close mobile sidebar on item click
+                }}
                 className={isActive ? 'sidebar-item-active' : 'sidebar-item'}
               >
                 <Icon className="sidebar-icon" />
@@ -449,43 +464,52 @@ export function Dashboard() {
               </p>
               <p className="text-xs text-gray-400 capitalize">{profile?.role?.replace('-', ' ')}</p>
             </div>
-            <button
-              onClick={handleLogout}
-              className="text-xs text-gray-400 hover:text-white"
-            >
-              Logout
-            </button>
           </div>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="main-content">
+      <div className="main-content flex-1">
         {/* Header */}
         <header className="main-header">
-          <div className="px-8 py-4 flex justify-between items-center">
+          <div className="px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
             <div className="flex items-center space-x-4">
+              {/* Mobile Menu Button */}
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="lg:hidden p-2 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+              >
+                <Bars3Icon className="w-6 h-6" />
+              </button>
               <input
                 type="text"
                 placeholder="Search clients, appointments, staff..."
-                className="w-96 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                className="hidden sm:block w-64 lg:w-96 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
               />
             </div>
             <div className="flex items-center space-x-4">
-              <div className="text-right">
+              <div className="hidden sm:block text-right">
                 <p className="text-sm font-medium text-gray-900">R ZAR</p>
               </div>
               <div className="w-8 h-8 bg-primary-500 rounded-full"></div>
-              <div>
+              <div className="hidden sm:block">
                 <p className="text-sm font-medium text-gray-900">{profile?.firstName} {profile?.lastName}</p>
                 <p className="text-xs text-gray-500 capitalize">{profile?.role?.replace('-', ' ')}</p>
               </div>
+              <button
+                onClick={handleLogout}
+                className="btn btn-secondary text-sm"
+              >
+                Logout
+              </button>
             </div>
           </div>
         </header>
 
-        {/* Page Content */}
-        {renderMainContent()}
+        {/* Page Content - Let page-container handle padding */}
+        <div className="w-full">
+          {renderMainContent()}
+        </div>
       </div>
     </div>
   );
