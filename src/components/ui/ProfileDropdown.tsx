@@ -6,7 +6,7 @@ import {
   ArrowRightOnRectangleIcon,
   ChevronDownIcon 
 } from '@heroicons/react/24/outline';
-import { ProfileCompletionForm } from '../forms/ProfileCompletionForm';
+import { PersonalProfileEditor } from '../forms/PersonalProfileEditor';
 import { Modal } from './Modal';
 import type { UserProfile } from '../../types';
 
@@ -100,7 +100,7 @@ export function ProfileDropdown({ user }: ProfileDropdownProps) {
               className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <UserIcon className="w-4 h-4 mr-3 text-gray-500" />
-              Complete Profile
+              Edit My Profile
             </button>
             
             <div className="border-t border-gray-100 my-1"></div>
@@ -116,15 +116,15 @@ export function ProfileDropdown({ user }: ProfileDropdownProps) {
         )}
       </div>
 
-      {/* Profile Completion Modal */}
+      {/* Profile Editor Modal */}
       {showProfileModal && (
         <Modal 
           isOpen={showProfileModal} 
           onClose={() => setShowProfileModal(false)} 
-          title="Complete Your Profile"
+          title="Edit My Profile"
           size="lg"
         >
-          <ProfileCompletionForm onSuccess={handleProfileSuccess} />
+          <PersonalProfileEditor onSuccess={handleProfileSuccess} />
         </Modal>
       )}
     </>
