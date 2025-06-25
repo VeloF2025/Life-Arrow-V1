@@ -1,19 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  collection, 
-  query, 
-  orderBy, 
-  onSnapshot, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  doc, 
-  serverTimestamp,
-  getDocs,
-  limit,
-  setDoc
-} from 'firebase/firestore';
-import { 
   ref, 
   uploadBytes, 
   getDownloadURL 
@@ -23,7 +9,11 @@ import {
   sendPasswordResetEmail,
   sendEmailVerification
 } from 'firebase/auth';
-import { db, storage, auth } from '../../lib/firebase';
+import { storage, auth } from '../../lib/firebase';
+import { dbServices } from '../../lib/database';
+import { Permissions } from '../../lib/permissions';
+import { usePermissions } from '../../hooks/usePermissions';
+import type { UserDocument } from '../../lib/db-schema';
 import { 
   PlusIcon, 
   MagnifyingGlassIcon,
@@ -34,7 +24,6 @@ import {
   XMarkIcon,
   ExclamationTriangleIcon,
   ArrowPathIcon,
-  LinkIcon,
   MapPinIcon,
   PhoneIcon,
   UserIcon,
@@ -49,7 +38,6 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { TextArea } from '../ui/TextArea';
 import LoadingSpinner from '../ui/LoadingSpinner';
-import { useUserProfile } from '../../hooks/useUserProfile';
 
 interface StaffMember {
   id: string;
@@ -59,13 +47,13 @@ interface StaffMember {
   phone: string;
   position: string;
   department: string;
-  qualifications: string[];
+  qualifications: string;
   specializations: string[];
   status: 'active' | 'inactive' | 'on-leave';
   hireDate: Date;
   centre?: string; // Legacy field for backward compatibility
   centreIds?: string[]; // New field for multiple centres
-  photoUrl?: string;
+  photoURL?: string;
   emergencyContact: {
     name: string;
     phone: string;
@@ -186,36 +174,57 @@ const provinces = [
 export function StaffManagement() {
   const { profile: currentUserProfile } = useUserProfile();
   const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [centres, setCentres] = useState<TreatmentCentre[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+  const [centresError, setCentresError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
-  const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
+  const [editingMember, setEditingMember] = useState<StaffMember | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // Treatment centres lookup state
-  const [showCentresLookup, setShowCentresLookup] = useState(false);
-  const [centres, setCentres] = useState<TreatmentCentre[]>([]);
   const [centresLoading, setCentresLoading] = useState(false);
-  const [centresError, setCentresError] = useState<string | null>(null);
 
-  // Photo upload state
+  // Photo handling state
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [showCamera, setShowCamera] = useState(false);
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [videoRef, setVideoRef] = useState<HTMLVideoElement | null>(null);
+  const [canvasRef, setCanvasRef] = useState<HTMLCanvasElement | null>(null);
 
-  // Staff-to-Admin conversion state
+  // Promotion state
   const [promotingStaff, setPromotingStaff] = useState<string | null>(null);
   const [showPromoteConfirm, setShowPromoteConfirm] = useState<StaffMember | null>(null);
   const [promotionError, setPromotionError] = useState<string | null>(null);
 
-  // Password management state
-  const [showPasswordReset, setShowPasswordReset] = useState<StaffMember | null>(null);
+  // Password reset state
   const [resettingPassword, setResettingPassword] = useState<string | null>(null);
+  const [showPasswordReset, setShowPasswordReset] = useState<StaffMember | null>(null);
 
-  // Form data state
+  // Permission checks
+  const { userCan } = usePermissions();
+  const canViewStaff = userCan(Permissions.VIEW_STAFF);
+  const canCreateStaff = userCan(Permissions.CREATE_STAFF);
+  const canEditStaff = userCan(Permissions.EDIT_STAFF);
+  const canDeleteStaff = userCan(Permissions.DELETE_STAFF);
+
+  // Early return if no view permission
+  if (!canViewStaff) {
+    return (
+      <div className="p-6">
+        <div className="text-center">
+          <ExclamationTriangleIcon className="mx-auto h-12 w-12 text-gray-400" />
+          <h3 className="mt-2 text-sm font-medium text-gray-900">Access Denied</h3>
+          <p className="mt-1 text-sm text-gray-500">
+            You don't have permission to view staff management.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const [formData, setFormData] = useState<StaffFormData>({
     firstName: '',
     lastName: '',
@@ -282,23 +291,23 @@ export function StaffManagement() {
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitting(true);
-    setUploadingPhoto(!!photoFile);
+    setError(null);
 
     try {
+      // Prepare staff data
       const staffData = {
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
         email: formData.email.trim().toLowerCase(),
         phone: formData.phone.trim(),
-        position: formData.position,
-        department: formData.department,
-        qualifications: formData.qualifications.split(',').map(q => q.trim()).filter(q => q),
+        position: formData.position.trim(),
+        department: formData.department.trim(),
+        qualifications: formData.qualifications.trim(),
         specializations: formData.specializations.split(',').map(s => s.trim()).filter(s => s),
-        status: formData.status,
-        hireDate: new Date(formData.hireDate),
-        centre: formData.centre || null,
+        role: 'staff',
+        isActive: formData.status === 'active',
         centreIds: formData.centreIds,
+        primaryCentreId: formData.centreIds[0] || undefined,
         emergencyContact: {
           name: formData.emergencyContactName.trim(),
           phone: formData.emergencyContactPhone.trim(),
@@ -310,58 +319,89 @@ export function StaffManagement() {
           province: formData.province,
           postalCode: formData.postalCode.trim()
         },
-        salary: formData.salary ? parseFloat(formData.salary) : null,
-        notes: formData.notes.trim() || null,
-        updatedAt: serverTimestamp()
+        notes: formData.notes.trim() || undefined
       };
 
       let staffId: string;
-      let photoUrl = '';
 
-      if (editingStaff) {
-        staffId = editingStaff.id;
-        photoUrl = editingStaff.photoUrl || '';
+      if (editingMember) {
+        // Update existing staff member
+        staffId = editingMember.id;
         
-        // Upload new photo if selected
+        // Upload photo if selected
+        let photoURL = editingMember.photoURL;
         if (photoFile) {
-          photoUrl = await uploadPhoto(photoFile, staffId);
+          photoURL = await uploadPhoto(photoFile, staffId);
         }
         
-        await updateDoc(doc(db, 'staff', staffId), {
+        await dbServices.users.update(staffId, {
           ...staffData,
-          ...(photoUrl && { photoUrl })
+          ...(photoURL && { photoURL: photoURL })
         });
       } else {
-        // Create new staff member first to get ID
-        const docRef = await addDoc(collection(db, 'staff'), {
+        // Create new staff member
+        const newStaffMember = await dbServices.users.create({
           ...staffData,
-          createdAt: serverTimestamp()
+          emailVerified: false
         });
-        staffId = docRef.id;
+        staffId = newStaffMember.id;
         
         // Upload photo if selected
         if (photoFile) {
-          photoUrl = await uploadPhoto(photoFile, staffId);
-          await updateDoc(doc(db, 'staff', staffId), { photoUrl });
+          const photoURL = await uploadPhoto(photoFile, staffId);
+          await dbServices.users.update(staffId, { photoURL: photoURL });
         }
       }
 
+      // Reset form and close modal
       resetFormData();
       setShowAddForm(false);
-      setEditingStaff(null);
-      removePhoto();
+      setEditingMember(null);
+      
+      // Reload staff data
+      const staffUsers = await dbServices.users.getByRole('staff');
+      const updatedStaffData = staffUsers.map(user => ({
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phone: user.phone || '',
+        position: user.position || '',
+        department: user.department || '',
+        qualifications: user.qualifications || [],
+        specializations: user.specializations || [],
+        status: user.isActive ? 'active' : 'inactive',
+        hireDate: user.createdAt,
+        centre: user.primaryCentreId || '',
+        centreIds: user.centreIds || [],
+        photoURL: user.photoURL || '',
+        emergencyContact: user.emergencyContact || {
+          name: '',
+          phone: '',
+          relationship: ''
+        },
+        address: user.address || {
+          street: '',
+          city: '',
+          province: '',
+          postalCode: ''
+        },
+        notes: user.notes || '',
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
+      })) as StaffMember[];
+      
+      setStaff(updatedStaffData);
+
     } catch (error) {
       console.error('Error saving staff member:', error);
       setError('Failed to save staff member. Please try again.');
-    } finally {
-      setSubmitting(false);
-      setUploadingPhoto(false);
     }
   };
 
   // Handle edit
   const handleEdit = (member: StaffMember) => {
-    setEditingStaff(member);
+    setEditingMember(member);
     setFormData({
       firstName: member.firstName,
       lastName: member.lastName,
@@ -369,7 +409,7 @@ export function StaffManagement() {
       phone: member.phone,
       position: member.position,
       department: member.department,
-      qualifications: member.qualifications.join(', '),
+      qualifications: member.qualifications || '',
       specializations: member.specializations.join(', '),
       status: member.status,
       hireDate: member.hireDate.toISOString().split('T')[0],
@@ -388,87 +428,63 @@ export function StaffManagement() {
     setShowAddForm(true);
   };
 
-  // Load staff data from Firebase
+  // Load staff data from database services
   useEffect(() => {
-    const loadStaff = () => {
+    const loadStaff = async () => {
       try {
-        const staffRef = collection(db, 'staff');
-        const q = query(staffRef, orderBy('lastName'), limit(100));
-        
-        const unsubscribe = onSnapshot(q, 
-          (snapshot) => {
-            const staffData = snapshot.docs.map(doc => {
-              const data = doc.data();
-              return {
-                id: doc.id,
-                ...data,
-                hireDate: data.hireDate?.toDate() || new Date(),
-                createdAt: data.createdAt?.toDate() || new Date(),
-                updatedAt: data.updatedAt?.toDate() || new Date(),
-                qualifications: data.qualifications || [],
-                specializations: data.specializations || []
-              } as StaffMember;
-            });
-            setStaff(staffData);
-            setLoading(false);
-            setError(null);
+        const staffUsers = await dbServices.users.getByRole('staff');
+        const staffData = staffUsers.map(user => ({
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phone: user.phone || '',
+          position: user.position || '',
+          department: user.department || '',
+          qualifications: user.qualifications || '',
+          specializations: user.specializations || [],
+          status: user.isActive ? 'active' : 'inactive',
+          hireDate: user.createdAt,
+          centre: user.primaryCentreId || '',
+          centreIds: user.centreIds || [],
+          photoURL: user.photoURL || '',
+          emergencyContact: user.emergencyContact || {
+            name: '',
+            phone: '',
+            relationship: ''
           },
-          (error) => {
-            console.error('Error loading staff:', error);
-            // Fallback to one-time fetch
-            getDocs(q).then(snapshot => {
-              const staffData = snapshot.docs.map(doc => {
-                const data = doc.data();
-                return {
-                  id: doc.id,
-                  ...data,
-                  hireDate: data.hireDate?.toDate() || new Date(),
-                  createdAt: data.createdAt?.toDate() || new Date(),
-                  updatedAt: data.updatedAt?.toDate() || new Date(),
-                  qualifications: data.qualifications || [],
-                  specializations: data.specializations || []
-                } as StaffMember;
-              });
-              setStaff(staffData);
-              setLoading(false);
-              setError(null);
-            }).catch(err => {
-              console.error('Fallback fetch failed:', err);
-              setError('Unable to load staff data. Please check your connection and try again.');
-              setLoading(false);
-            });
-          }
-        );
-
-        return unsubscribe;
+          address: user.address || {
+            street: '',
+            city: '',
+            province: '',
+            postalCode: ''
+          },
+          notes: user.notes || '',
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt
+        })) as StaffMember[];
+        
+        setStaff(staffData);
+        setLoading(false);
+        setError(null);
       } catch (error) {
-        console.error('Error setting up staff listener:', error);
-        setError('Unable to connect to the database. Please try again.');
+        console.error('Error loading staff:', error);
+        setError('Unable to load staff data. Please check your connection and try again.');
         setLoading(false);
       }
     };
 
-    const unsubscribe = loadStaff();
-    return () => unsubscribe && unsubscribe();
+    loadStaff();
   }, []);
 
   // Load centres on component mount for displaying centre names
   useEffect(() => {
     const loadCentresData = async () => {
       try {
-        const centresRef = collection(db, 'centres');
-        const q = query(centresRef, orderBy('name'));
-        const snapshot = await getDocs(q);
-        
-        const centresData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as TreatmentCentre[];
-        
+        const centresData = await dbServices.centres.query([]);
         setCentres(centresData);
       } catch (error) {
         console.error('Error loading centres for display:', error);
-        // Don't set error for this as it's not critical for basic functionality
       }
     };
 
@@ -492,10 +508,7 @@ export function StaffManagement() {
     const newStatus = member.status === 'active' ? 'inactive' : 'active';
     
     try {
-      await updateDoc(doc(db, 'staff', member.id), {
-        status: newStatus,
-        updatedAt: serverTimestamp()
-      });
+      await dbServices.users.update(member.id, { isActive: newStatus === 'active' });
     } catch (error) {
       console.error('Error updating staff status:', error);
       setError('Failed to update staff status. Please try again.');
@@ -506,7 +519,7 @@ export function StaffManagement() {
     if (!confirm('Are you sure you want to delete this staff member?')) return;
 
     try {
-      await deleteDoc(doc(db, 'staff', id));
+      await dbServices.users.delete(id);
     } catch (error) {
       console.error('Error deleting staff member:', error);
       setError('Failed to delete staff member. Please try again.');
@@ -528,15 +541,7 @@ export function StaffManagement() {
     setCentresError(null);
     
     try {
-      const centresRef = collection(db, 'centres');
-      const q = query(centresRef, orderBy('name'));
-      const snapshot = await getDocs(q);
-      
-      const centresData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as TreatmentCentre[];
-      
+      const centresData = await dbServices.centres.query([]);
       setCentres(centresData);
     } catch (error) {
       console.error('Error loading centres:', error);
@@ -590,7 +595,7 @@ export function StaffManagement() {
   const handleCameraCapture = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      setShowCamera(true);
+      setShowCameraModal(true);
       // Store the stream for the camera modal
       (window as any).cameraStream = stream;
     } catch (error) {
@@ -632,7 +637,7 @@ export function StaffManagement() {
       stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
       delete (window as any).cameraStream;
     }
-    setShowCamera(false);
+    setShowCameraModal(false);
   };
 
   const removePhoto = () => {
@@ -668,52 +673,29 @@ export function StaffManagement() {
       await sendPasswordResetEmail(auth, staffMember.email);
 
       // Create user profile in Firestore
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
+      await dbServices.users.create({
         id: userCredential.user.uid,
         email: staffMember.email,
         firstName: staffMember.firstName,
         lastName: staffMember.lastName,
         role: 'admin',
-        avatar: staffMember.photoUrl || null,
+        isActive: true,
         createdAt: new Date(),
-        updatedAt: new Date(),
+        updatedAt: new Date()
       });
 
-      // Create admin profile
-      await setDoc(doc(db, 'adminProfiles', userCredential.user.uid), {
-        id: userCredential.user.uid,
-        email: staffMember.email,
-        firstName: staffMember.firstName,
-        lastName: staffMember.lastName,
-        role: 'admin',
-        specializations: staffMember.specializations || [],
-        credentials: staffMember.qualifications || [],
-        bio: `Promoted from ${staffMember.position} in ${staffMember.department}`,
-        experience: 0,
-        clients: [],
-        availability: [],
-        permissions: {
-          canCreateAdmins: false,
-          canDeleteAdmins: false,
-          canManageSystem: false,
-          canViewAllData: false,
-        },
-        settings: {
-          appointmentDuration: 60,
-          bufferTime: 15,
-          maxDailyAppointments: 8,
-          autoAcceptBookings: false,
-        },
-        centreIds: staffMember.centreIds || [],
-        originalStaffId: staffMember.id,
-        promotedAt: new Date(),
-        promotedBy: currentUserProfile.id,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+      // Update with admin profile details
+      await dbServices.users.update(userCredential.user.uid, {
+        position: staffMember.position,
+        department: staffMember.department,
+        phone: staffMember.phone,
+        centreIds: staffMember.centreIds,
+        primaryCentreId: staffMember.centreIds[0] || null,
+        permissions: []
       });
 
       // Update staff record to mark as promoted but keep active
-      await updateDoc(doc(db, 'staff', staffMember.id), {
+      await dbServices.users.update(staffMember.id, {
         // Keep original status - don't change to inactive
         hasAdminAccount: true, // Flag to show they have admin access
         adminUserId: userCredential.user.uid,
@@ -726,6 +708,43 @@ export function StaffManagement() {
 
       console.log('✅ Staff member promoted to admin successfully');
       setShowPromoteConfirm(null);
+      
+      // Refresh staff list using the database service
+      const staffUsers = await dbServices.users.getByRole('staff');
+      const updatedStaffData = staffUsers.map(user => ({
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phone: user.phone || '',
+        position: user.position || '',
+        department: user.department || '',
+        qualifications: user.qualifications || [],
+        specializations: user.specializations || [],
+        status: user.isActive ? 'active' : 'inactive',
+        hireDate: user.createdAt,
+        centre: user.primaryCentreId || '',
+        centreIds: user.centreIds || [],
+        photoURL: user.photoURL || '',
+        emergencyContact: user.emergencyContact || {
+          name: '',
+          phone: '',
+          relationship: ''
+        },
+        address: user.address || {
+          street: '',
+          city: '',
+          province: '',
+          postalCode: ''
+        },
+        notes: user.notes || '',
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        hasAdminAccount: (user as any).hasAdminAccount || false,
+        adminUserId: (user as any).adminUserId
+      })) as StaffMember[];
+      
+      setStaff(updatedStaffData);
     } catch (error: any) {
       console.error('❌ Error promoting staff to admin:', error);
       let errorMessage = 'Failed to promote staff to admin. Please try again.';
@@ -793,17 +812,19 @@ export function StaffManagement() {
           <h1 className="text-2xl font-bold text-gray-900">Staff Management</h1>
           <p className="text-gray-600">Manage team members, qualifications, and schedules</p>
         </div>
-        <Button 
-          onClick={() => {
-            setEditingStaff(null);
-            resetFormData();
-            setShowAddForm(true);
-          }}
-          className="bg-primary-600 hover:bg-primary-700"
-        >
-          <PlusIcon className="w-5 h-5 mr-2" />
-          Add Staff Member
-        </Button>
+        {canCreateStaff && (
+          <Button 
+            onClick={() => {
+              setEditingMember(null);
+              resetFormData();
+              setShowAddForm(true);
+            }}
+            className="bg-primary-600 hover:bg-primary-700"
+          >
+            <PlusIcon className="w-5 h-5 mr-2" />
+            Add Staff Member
+          </Button>
+        )}
       </div>
 
       {/* Error Display */}
@@ -888,9 +909,9 @@ export function StaffManagement() {
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex items-center">
                       <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 mr-3">
-                        {member.photoUrl ? (
+                        {member.photoURL ? (
                           <img 
-                            src={member.photoUrl} 
+                            src={member.photoURL} 
                             alt={`${member.firstName} ${member.lastName}`}
                             className="w-full h-full object-cover"
                           />
@@ -969,24 +990,24 @@ export function StaffManagement() {
                     <div className="mb-2">
                       <strong className="text-gray-700">Qualifications:</strong>
                       <div className="flex flex-wrap gap-1 mt-1">
-                        {member.qualifications.map((qual: string, index: number) => (
-                          <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
-                            {qual}
-                          </span>
-                        ))}
+                        <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                          {member.qualifications}
+                        </span>
                       </div>
                     </div>
                   )}
                 </div>
 
                 <div className="flex flex-col space-y-2 ml-4">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleEdit(member)}
-                  >
-                    <PencilIcon className="w-4 h-4" />
-                  </Button>
+                  {canEditStaff && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleEdit(member)}
+                    >
+                      <PencilIcon className="w-4 h-4" />
+                    </Button>
+                  )}
                   
                   {/* Super Admin Only Actions */}
                   {isSuperAdmin && (
@@ -1023,22 +1044,26 @@ export function StaffManagement() {
                     </>
                   )}
                   
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleStatusToggle(member)}
-                    className={member.status === 'active' ? 'text-red-600 hover:text-red-700' : 'text-green-600 hover:text-green-700'}
-                  >
-                    {member.status === 'active' ? 'Deactivate' : 'Activate'}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDelete(member.id)}
-                    className="text-red-600 hover:text-red-700"
-                  >
-                    <TrashIcon className="w-4 h-4" />
-                  </Button>
+                  {canDeleteStaff && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleStatusToggle(member)}
+                      className={member.status === 'active' ? 'text-red-600 hover:text-red-700' : 'text-green-600 hover:text-green-700'}
+                    >
+                      {member.status === 'active' ? 'Deactivate' : 'Activate'}
+                    </Button>
+                  )}
+                  {canDeleteStaff && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(member.id)}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <TrashIcon className="w-4 h-4" />
+                    </Button>
+                  )}
                 </div>
               </div>
             </Card>
@@ -1053,13 +1078,13 @@ export function StaffManagement() {
             <div className="p-6">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-bold text-gray-900">
-                  {editingStaff ? 'Edit Staff Member' : 'Add New Staff Member'}
+                  {editingMember ? 'Edit Staff Member' : 'Add New Staff Member'}
                 </h2>
                 <Button
                   variant="ghost"
                   onClick={() => {
                     setShowAddForm(false);
-                    setEditingStaff(null);
+                    setEditingMember(null);
                     resetFormData();
                   }}
                 >
@@ -1106,10 +1131,10 @@ export function StaffManagement() {
                   <div className="flex items-center space-x-4">
                     {/* Photo Preview */}
                     <div className="relative">
-                      {photoPreview || (editingStaff?.photoUrl) ? (
+                      {photoPreview || (editingMember?.photoURL) ? (
                         <div className="relative">
                           <img
-                            src={photoPreview || editingStaff?.photoUrl}
+                            src={photoPreview || editingMember?.photoURL}
                             alt="Profile preview"
                             className="w-24 h-24 rounded-full object-cover border-2 border-gray-300"
                           />
@@ -1412,7 +1437,7 @@ export function StaffManagement() {
                     variant="outline"
                     onClick={() => {
                       setShowAddForm(false);
-                      setEditingStaff(null);
+                      setEditingMember(null);
                       resetFormData();
                     }}
                   >
@@ -1426,12 +1451,12 @@ export function StaffManagement() {
                     {submitting ? (
                       <>
                         <ArrowPathIcon className="w-4 h-4 mr-2 animate-spin" />
-                        {editingStaff ? 'Updating...' : 'Adding...'}
+                        {editingMember ? 'Updating...' : 'Adding...'}
                       </>
                     ) : (
                       <>
                         <CheckIcon className="w-4 h-4 mr-2" />
-                        {editingStaff ? 'Update Staff Member' : 'Add Staff Member'}
+                        {editingMember ? 'Update Staff Member' : 'Add Staff Member'}
                       </>
                     )}
                   </Button>
@@ -1522,7 +1547,7 @@ export function StaffManagement() {
       )}
 
       {/* Camera Modal */}
-      {showCamera && (
+      {showCameraModal && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg max-w-md w-full">
             <div className="p-6">

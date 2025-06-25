@@ -28,6 +28,22 @@ export interface UserProfile {
   lastName: string;
   role: UserRole;
   avatar?: string;
+  photoUrl?: string;
+  phone?: string;
+  street?: string;
+  city?: string;
+  province?: string;
+  postalCode?: string;
+  position?: string;
+  department?: string;
+  specializations?: string[];
+  qualifications?: string;
+  bio?: string;
+  experience?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  emergencyContactRelationship?: string;
+  centreIds?: string[]; // IDs of centres the user is associated with
   createdAt: Date;
   updatedAt: Date;
 }

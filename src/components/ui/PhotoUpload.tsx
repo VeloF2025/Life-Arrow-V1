@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   CameraIcon, 
   PhotoIcon, 
@@ -7,6 +7,7 @@ import {
   ArrowPathIcon 
 } from '@heroicons/react/24/outline';
 import { Button } from './Button';
+import { validatePhoto, uploadPhoto } from '../../lib/storage';
 
 interface PhotoUploadProps {
   currentPhotoUrl?: string;
@@ -14,6 +15,8 @@ interface PhotoUploadProps {
   onPhotoRemove: () => void;
   uploading?: boolean;
   className?: string;
+  userId?: string;
+  userRole?: 'admin' | 'staff' | 'client' | 'practitioner';
 }
 
 export function PhotoUpload({ 
@@ -21,39 +24,69 @@ export function PhotoUpload({
   onPhotoSelect, 
   onPhotoRemove, 
   uploading = false,
-  className = '' 
+  className = '',
+  userId,
+  userRole = 'client'
 }: PhotoUploadProps) {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
 
-  const handlePhotoSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
-        alert('Photo size must be less than 5MB');
-        return;
-      }
-      
-      if (!file.type.startsWith('image/')) {
-        alert('Please select a valid image file');
+    if (file && userId) {
+      const validation = validatePhoto(file);
+      if (!validation.isValid) {
+        alert(validation.error);
         return;
       }
 
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setPhotoPreview(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-      onPhotoSelect(file);
+      try {
+        const storagePath = getStoragePath(userRole, userId);
+        await uploadPhoto(file, storagePath);
+        
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setPhotoPreview(e.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+        onPhotoSelect(file);
+      } catch (error) {
+        console.error('Error uploading photo:', error);
+        alert('Failed to upload photo. Please try again.');
+      }
+    }
+  };
+
+  const getStoragePath = (role: string, id: string) => {
+    switch (role) {
+      case 'staff':
+        return `staff/${id}`;
+      case 'practitioner':
+        return `practitioners/${id}`;
+      case 'client':
+        return `clients/${id}`;
+      case 'admin':
+      default:
+        return `users/${id}/avatar`;
     }
   };
 
   const handleCameraCapture = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      // For now, just trigger file input
-      // In a real implementation, you'd show a camera modal
-      stream.getTracks().forEach(track => track.stop());
-      document.getElementById('photo-input')?.click();
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        } 
+      });
+      setStream(mediaStream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+      }
+      setShowCameraModal(true);
     } catch (error) {
       console.error('Camera access denied:', error);
       alert('Camera access denied. Please use file upload instead.');
@@ -61,89 +94,165 @@ export function PhotoUpload({
     }
   };
 
-  const handleRemovePhoto = () => {
-    setPhotoPreview(null);
-    onPhotoRemove();
-    // Reset file input
-    const input = document.getElementById('photo-input') as HTMLInputElement;
-    if (input) input.value = '';
+  const handleCapture = () => {
+    if (!videoRef.current || !userId) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    context.drawImage(videoRef.current, 0, 0);
+    
+    canvas.toBlob(async (blob) => {
+      if (blob) {
+        const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        const validation = validatePhoto(file);
+        if (!validation.isValid) {
+          alert(validation.error);
+          return;
+        }
+
+        try {
+          const storagePath = getStoragePath(userRole, userId);
+          await uploadPhoto(file, storagePath);
+          setPhotoPreview(URL.createObjectURL(blob));
+          onPhotoSelect(file);
+          handleCloseCameraModal();
+        } catch (error) {
+          console.error('Error uploading photo:', error);
+          alert('Failed to upload photo. Please try again.');
+        }
+      }
+    }, 'image/jpeg', 0.8);
   };
 
-  const displayPhoto = photoPreview || currentPhotoUrl;
+  const handleCloseCameraModal = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+    setShowCameraModal(false);
+  };
 
   return (
-    <div className={`space-y-4 ${className}`}>
-      <h3 className="text-lg font-medium text-gray-900">Profile Photo</h3>
-      
-      <div className="flex items-center space-x-4">
-        {/* Photo Preview */}
-        <div className="relative">
-          {displayPhoto ? (
-            <div className="relative">
+    <div className={`relative ${className}`}>
+      <div className="flex flex-col items-center">
+        {/* Photo preview or placeholder */}
+        <div className="relative h-24 w-24 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center border border-gray-200 mb-4">
+          {(photoPreview || currentPhotoUrl) ? (
+            <div className="relative group">
               <img
-                src={displayPhoto}
-                alt="Profile preview"
-                className="w-24 h-24 rounded-full object-cover border-2 border-gray-300"
+                src={photoPreview || currentPhotoUrl}
+                alt="Profile"
+                className="h-24 w-24 object-cover"
               />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={handleRemovePhoto}
-                className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white p-0"
+              <button
+                onClick={() => {
+                  setPhotoPreview(null);
+                  onPhotoRemove();
+                  const input = document.getElementById('photo-input') as HTMLInputElement;
+                  if (input) input.value = '';
+                }}
+                className="absolute -top-1 -right-1 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
                 disabled={uploading}
               >
-                <XMarkIcon className="w-4 h-4" />
-              </Button>
+                <XMarkIcon className="w-3.5 h-3.5" />
+              </button>
             </div>
           ) : (
-            <div className="w-24 h-24 rounded-full bg-gray-200 border-2 border-dashed border-gray-300 flex items-center justify-center">
-              <UserIcon className="w-8 h-8 text-gray-400" />
-            </div>
+            <UserIcon className="w-12 h-12 text-gray-400" />
           )}
         </div>
 
-        {/* Upload Buttons */}
-        <div className="flex flex-col space-y-2">
+        {/* Upload buttons */}
+        <div className="flex space-x-2 mb-3">
           <input
-            id="photo-input"
             type="file"
+            id="photo-input"
             accept="image/*"
             onChange={handlePhotoSelect}
             className="hidden"
+            disabled={uploading}
           />
+          
           <Button
-            type="button"
             variant="outline"
-            size="sm"
+            size="xs"
             onClick={() => document.getElementById('photo-input')?.click()}
             disabled={uploading}
           >
-            <PhotoIcon className="w-4 h-4 mr-2" />
-            Upload Photo
+            <PhotoIcon className="w-3.5 h-3.5 mr-1.5" />
+            Upload
           </Button>
+          
           <Button
-            type="button"
             variant="outline"
-            size="sm"
+            size="xs"
             onClick={handleCameraCapture}
             disabled={uploading}
           >
-            <CameraIcon className="w-4 h-4 mr-2" />
-            Take Photo
+            <CameraIcon className="w-3.5 h-3.5 mr-1.5" />
+            Camera
           </Button>
-          {uploading && (
-            <div className="flex items-center text-sm text-gray-600">
-              <ArrowPathIcon className="w-4 h-4 mr-2 animate-spin" />
-              Uploading...
-            </div>
-          )}
         </div>
+
+        {uploading && (
+          <div className="flex items-center justify-center text-xs text-gray-600 mb-2">
+            <ArrowPathIcon className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+            Uploading...
+          </div>
+        )}
+        
+        <p className="text-xs text-gray-500 text-center">
+          Maximum size: 5MB<br />Formats: JPG, PNG, GIF
+        </p>
       </div>
-      
-      <p className="text-xs text-gray-500">
-        Maximum file size: 5MB. Supported formats: JPG, PNG, GIF
-      </p>
+
+      {/* Camera Modal */}
+      {showCameraModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+          <div className="bg-white p-4 rounded-lg max-w-2xl w-full mx-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium">Take Photo</h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCloseCameraModal}
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </Button>
+            </div>
+            
+            <div className="relative aspect-video bg-gray-900 rounded-lg overflow-hidden mb-4">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                className="w-full h-full object-cover"
+              />
+            </div>
+            
+            <div className="flex justify-end space-x-2">
+              <Button
+                variant="outline"
+                onClick={handleCloseCameraModal}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleCapture}
+              >
+                <CameraIcon className="w-5 h-5 mr-2" />
+                Capture
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-} 
+}

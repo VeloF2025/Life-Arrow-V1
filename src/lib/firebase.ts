@@ -3,6 +3,7 @@ import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getStorage, connectStorageEmulator } from 'firebase/storage';
 import { getAnalytics } from 'firebase/analytics';
+import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
 
 // Firebase configuration
 const firebaseConfig = {
@@ -22,6 +23,7 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+export const functions = getFunctions(app);
 
 // Initialize Analytics (only in production)
 export const analytics = typeof window !== 'undefined' && import.meta.env.PROD 
@@ -50,7 +52,14 @@ if (import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true') {
     // Ignore if already connected
     console.log('Storage emulator already connected');
   }
+  
+  try {
+    connectFunctionsEmulator(functions, 'localhost', 5001);
+  } catch {
+    // Ignore if already connected
+    console.log('Functions emulator already connected');
+  }
 }
 
 export { app };
-export default app; 
+export default app;

@@ -2,6 +2,11 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { useUserProfile } from './hooks/useUserProfile';
+import { Permissions } from './lib/permissions';
+import PermissionProtectedRoute from './components/auth/PermissionProtectedRoute';
+
+// Admin pages
+import MigrationPage from './pages/admin/MigrationPage';
 
 // Page imports
 import LandingPage from './pages/LandingPage';
@@ -28,36 +33,8 @@ const queryClient = new QueryClient({
   },
 });
 
-// Protected Route component
-function ProtectedRoute({ 
-  children,
-  allowedRoles,
-}: { 
-  children: React.ReactNode;
-  allowedRoles?: string[];
-}) {
-  const { isAuthenticated, profile, loading } = useUserProfile();
-  
-  if (loading) {
-    return <LoadingSpinner />;
-  }
-  
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-  
-  // Check role-based access
-  if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {
-    // Redirect to appropriate dashboard based on user role
-    if (profile.role === 'client') {
-      return <Navigate to="/client/dashboard" replace />;
-    } else if (profile.role === 'admin' || profile.role === 'super-admin') {
-      return <Navigate to="/admin/dashboard" replace />;
-    }
-  }
-  
-  return <>{children}</>;
-}
+// Note: ProtectedRoute has been replaced by PermissionProtectedRoute
+// This legacy component has been removed as part of the RBAC migration
 
 // Public Route component (redirect if already authenticated)
 function PublicRoute({ children }: { children: React.ReactNode }) {
@@ -125,19 +102,19 @@ function AppContent() {
         <Route 
           path="/profile/complete" 
           element={
-            <ProtectedRoute>
+            <PermissionProtectedRoute>
               <ProfileCompletionPage />
-            </ProtectedRoute>
+            </PermissionProtectedRoute>
           } 
         />
         
-        {/* Appointments route - accessible to all authenticated users */}
+        {/* Appointments route - accessible to all authenticated users with appropriate permissions */}
         <Route 
           path="/appointments" 
           element={
-            <ProtectedRoute>
+            <PermissionProtectedRoute requiredPermission={Permissions.VIEW_OWN_APPOINTMENTS}>
               <AppointmentPage />
-            </ProtectedRoute>
+            </PermissionProtectedRoute>
           } 
         />
         
@@ -145,17 +122,43 @@ function AppContent() {
         <Route 
           path="/admin/dashboard" 
           element={
-            <ProtectedRoute allowedRoles={['admin', 'super-admin']}>
+            <PermissionProtectedRoute 
+              requiredPermissions={[
+                Permissions.VIEW_STAFF,
+                Permissions.VIEW_CLIENTS,
+                Permissions.VIEW_SERVICES
+              ]}
+              requireAll={false}
+            >
               <AdminDashboard />
-            </ProtectedRoute>
+            </PermissionProtectedRoute>
           } 
         />
+        {/* Admin Migration Page */}
+        <Route 
+          path="/admin/migration" 
+          element={
+            <PermissionProtectedRoute 
+              requiredPermission={Permissions.MANAGE_SYSTEM}
+            >
+              <MigrationPage />
+            </PermissionProtectedRoute>
+          } 
+        />
+        
         <Route 
           path="/admin/*" 
           element={
-            <ProtectedRoute allowedRoles={['admin', 'super-admin']}>
+            <PermissionProtectedRoute 
+              requiredPermissions={[
+                Permissions.VIEW_STAFF,
+                Permissions.VIEW_CLIENTS,
+                Permissions.VIEW_SERVICES
+              ]}
+              requireAll={false}
+            >
               <AdminDashboard />
-            </ProtectedRoute>
+            </PermissionProtectedRoute>
           } 
         />
         
@@ -163,17 +166,17 @@ function AppContent() {
         <Route 
           path="/client/dashboard" 
           element={
-            <ProtectedRoute allowedRoles={['client']}>
+            <PermissionProtectedRoute requiredPermission={Permissions.VIEW_OWN_APPOINTMENTS}>
               <ClientDashboard />
-            </ProtectedRoute>
+            </PermissionProtectedRoute>
           } 
         />
         <Route 
           path="/client/*" 
           element={
-            <ProtectedRoute allowedRoles={['client']}>
+            <PermissionProtectedRoute requiredPermission={Permissions.VIEW_OWN_APPOINTMENTS}>
               <ClientDashboard />
-            </ProtectedRoute>
+            </PermissionProtectedRoute>
           } 
         />
         
@@ -181,9 +184,9 @@ function AppContent() {
         <Route 
           path="/dashboard" 
           element={
-            <ProtectedRoute>
+            <PermissionProtectedRoute>
               <Navigate to="/client/dashboard" replace />
-            </ProtectedRoute>
+            </PermissionProtectedRoute>
           } 
         />
         

@@ -40,6 +40,8 @@ import { AppointmentManagement } from '../../components/admin/AppointmentManagem
 import SystemLogsViewer from '../../components/admin/SystemLogsViewer';
 import { ProfileDropdown } from '../../components/ui/ProfileDropdown';
 import { UserProfileValidator } from '../../components/admin/UserProfileValidator';
+import { SettingsManagement } from '../../components/admin/SettingsManagement';
+import Settings from '../admin/Settings';
 
 type AdminSection = 'overview' | 'clients' | 'appointments' | 'services' | 'centres' | 'staff' | 'scans' | 'videos' | 'wellness-plans' | 'reports' | 'settings' | 'audit' | 'site-health' | 'system-logs';
 
@@ -183,6 +185,8 @@ export function Dashboard() {
         return profile?.role === 'super-admin' ? <AuditPage /> : null;
       case 'system-logs':
         return renderSystemLogs();
+      case 'settings':
+        return renderSettings();
       default:
         return (
           <div className="page-container">
@@ -488,9 +492,13 @@ export function Dashboard() {
     <ClientsManagement />
   );
 
-  const renderSystemLogs = () => (
-    <SystemLogsViewer />
-  );
+  const renderSystemLogs = () => {
+    return <SystemLogsViewer />;
+  };
+  
+  const renderSettings = () => {
+    return <Settings />;
+  };
 
   return (
     <div className="flex min-h-screen w-full bg-gray-50">

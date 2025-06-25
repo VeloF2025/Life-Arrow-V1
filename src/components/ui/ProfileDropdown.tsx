@@ -6,7 +6,7 @@ import {
   ArrowRightOnRectangleIcon,
   ChevronDownIcon 
 } from '@heroicons/react/24/outline';
-import { PersonalProfileEditor } from '../forms/PersonalProfileEditor';
+import { StaffProfileEditor } from '../forms/StaffProfileEditor';
 import { Modal } from './Modal';
 import type { UserProfile } from '../../types';
 
@@ -124,7 +124,7 @@ export function ProfileDropdown({ user }: ProfileDropdownProps) {
           title="Edit My Profile"
           size="lg"
         >
-          <PersonalProfileEditor onSuccess={handleProfileSuccess} />
+          <StaffProfileEditor onClose={handleProfileSuccess} />
         </Modal>
       )}
     </>
