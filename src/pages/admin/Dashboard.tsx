@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { auth } from '../../lib/firebase';
+
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { useDashboardData } from '../../hooks/useDashboardData';
-import { signOut } from 'firebase/auth';
+
 import { 
   ChartBarIcon,
   UsersIcon,
@@ -29,18 +29,18 @@ import CreateAdminForm from '../../components/forms/CreateAdminForm';
 import { elevateCurrentUserToSuperAdmin } from '../../utils/elevateCurrentUser';
 
 // Import the new management components
-import { ServicesManagement } from '../../components/admin/ServicesManagement';
+import ServiceManagement from '../../features/services/components/ServiceManagement';
 import { CentresManagement } from '../../components/admin/CentresManagement';
-import { ClientsManagement } from '../../components/admin/ClientsManagement';
 import { StaffManagement } from '../../components/admin/StaffManagement';
 import { AdminSetup } from '../../components/admin/AdminSetup';
 import AuditPage from './AuditPage';
-import ClientAppointmentInterface from '../../components/appointments/ClientAppointmentInterface';
-import { AppointmentManagement } from '../../components/admin/AppointmentManagement';
+
+import { AppointmentManagementPage } from '../../features/appointments';
+import { ClientManagementPage } from '../../features/clients';
 import SystemLogsViewer from '../../components/admin/SystemLogsViewer';
 import { ProfileDropdown } from '../../components/ui/ProfileDropdown';
 import { UserProfileValidator } from '../../components/admin/UserProfileValidator';
-import { SettingsManagement } from '../../components/admin/SettingsManagement';
+
 import Settings from '../admin/Settings';
 
 type AdminSection = 'overview' | 'clients' | 'appointments' | 'services' | 'centres' | 'staff' | 'scans' | 'videos' | 'wellness-plans' | 'reports' | 'settings' | 'audit' | 'site-health' | 'system-logs';
@@ -57,9 +57,7 @@ export function Dashboard() {
 
   const isSuperAdmin = profile?.role === 'super-admin';
 
-  const handleLogout = async () => {
-    await signOut(auth);
-  };
+
 
   // Helper function to format currency
   const formatCurrency = (amount: number) => {
@@ -109,7 +107,7 @@ export function Dashboard() {
     { id: 'clients', label: 'Clients', icon: UsersIcon },
     { id: 'appointments', label: 'Appointments', icon: CalendarDaysIcon },
     { id: 'services', label: 'Services', icon: ClipboardDocumentListIcon },
-    { id: 'centres', label: 'Treatment Centres', icon: BuildingOfficeIcon },
+    { id: 'centres', label: 'Centres', icon: BuildingOfficeIcon },
     { id: 'staff', label: 'Staff', icon: UserGroupIcon },
     { id: 'scans', label: 'Scans', icon: ChartPieIcon },
     { id: 'videos', label: 'Videos', icon: VideoCameraIcon },
@@ -172,7 +170,7 @@ export function Dashboard() {
       case 'clients':
         return renderClientsManagement();
       case 'services':
-        return renderServicesManagement();
+        return <ServiceManagement />;
       case 'centres':
         return renderCentresManagement();
       case 'staff':
@@ -359,7 +357,7 @@ export function Dashboard() {
               <BuildingOfficeIcon className="w-6 h-6 text-blue-600" />
             </div>
             <div className="ml-4">
-              <h3 className="text-lg font-semibold text-gray-900">Treatment Centres</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Centres</h3>
               <p className="text-sm text-gray-600">Manage locations & facilities</p>
             </div>
           </div>
@@ -470,9 +468,7 @@ export function Dashboard() {
     </div>
   );
 
-  const renderServicesManagement = () => (
-    <ServicesManagement />
-  );
+
 
   const renderCentresManagement = () => (
     <CentresManagement />
@@ -482,14 +478,14 @@ export function Dashboard() {
     <StaffManagement />
   );
 
-  const renderAppointmentsManagement = () => (
-    <div className="page-container">
-      <AppointmentManagement />
-    </div>
-  );
+  const renderAppointmentsManagement = () => {
+    return (
+      <AppointmentManagementPage />
+    );
+  };
 
   const renderClientsManagement = () => (
-    <ClientsManagement />
+    <ClientManagementPage />
   );
 
   const renderSystemLogs = () => {

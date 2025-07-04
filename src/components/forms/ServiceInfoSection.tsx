@@ -72,20 +72,20 @@ export function ServiceInfoSection({
         />
       )}
 
-      {/* Treatment Centre */}
+      {/* Centre */}
       <div className="bg-gray-50 p-6 rounded-lg">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">
           Location Preference
         </h3>
         
         <Select
-          name="myNearestTreatmentCentre"
-          label="Nearest Treatment Centre"
-          value={data.myNearestTreatmentCentre || ''}
-          onChange={(value) => onChange('myNearestTreatmentCentre', value)}
+          name="myNearestCentre"
+          label="Nearest Centre"
+          value={data.myNearestCentre || ''}
+          onChange={(value) => onChange('myNearestCentre', value)}
           options={TREATMENT_CENTRES}
           required
-          error={errors.myNearestTreatmentCentre}
+          error={errors.myNearestCentre}
           placeholder="Select your preferred location"
         />
         

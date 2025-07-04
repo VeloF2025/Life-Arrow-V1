@@ -171,7 +171,7 @@ export interface ClientRegistrationData {
   // Service Information
   reasonForTransformation: string;
   whereDidYouHearAboutLifeArrow: string;
-  myNearestTreatmentCentre: string;
+  myNearestCentre: string;
   referrerName?: string;
   
   // Terms & Administrative
@@ -315,9 +315,9 @@ export function validateServiceInfo(data: Partial<ClientRegistrationData>): Vali
   const hearAboutError = validateRequired(data.whereDidYouHearAboutLifeArrow, 'Where did you hear about Life Arrow');
   if (hearAboutError) errors.push(hearAboutError);
   
-  // Treatment centre validation
-  const treatmentCentreError = validateRequired(data.myNearestTreatmentCentre, 'Nearest Treatment Centre');
-  if (treatmentCentreError) errors.push(treatmentCentreError);
+  // Centre validation
+  const centreError = validateRequired(data.myNearestCentre, 'Nearest Centre');
+  if (centreError) errors.push(centreError);
   
   return errors;
 }

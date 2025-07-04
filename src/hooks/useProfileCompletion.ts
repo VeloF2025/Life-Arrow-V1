@@ -81,7 +81,7 @@ export function useProfileCompletion(): ProfileCompletionStatus {
           // Service Information
           'reasonForTransformation': profileData.reasonForTransformation,
           'whereDidYouHearAboutLifeArrow': profileData.whereDidYouHearAboutLifeArrow,
-          'myNearestTreatmentCentre': profileData.myNearestTreatmentCentre,
+          'myNearestCentre': profileData.myNearestCentre,
           
           // Terms acceptance
           'termsAndConditionsAgreed': profileData.termsAndConditionsAgreed

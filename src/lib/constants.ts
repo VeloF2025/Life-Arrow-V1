@@ -12,7 +12,7 @@ export const PROVINCES = [
   'International'
 ] as const;
 
-// Life Arrow Treatment Centres
+// Life Arrow Centres
 export const TREATMENT_CENTRES = [
   'Cape Town - V&A Waterfront',
   'Johannesburg - Sandton',
@@ -156,7 +156,7 @@ Your personal information will be processed in accordance with the Protection of
 `;
 
 export type Province = typeof PROVINCES[number];
-export type TreatmentCentre = typeof TREATMENT_CENTRES[number];
+export type Centre = typeof TREATMENT_CENTRES[number];
 export type ContactMethod = typeof CONTACT_METHODS[number];
 export type Gender = typeof GENDER_OPTIONS[number];
 export type MaritalStatus = typeof MARITAL_STATUS_OPTIONS[number];

@@ -133,6 +133,14 @@
 - Add comprehensive TypeScript types for all data structures
 - Create reusable hook library
 
+### **Code Architecture & Optimization**
+
+- Implement feature-based architecture (see `architecture-plan.md`)
+- Extract business logic into custom hooks
+- Break down large components (starting with StaffManagement.tsx)
+- Create standardized API service modules
+- Implement context providers for global state management
+
 ### **Build & Deployment**
 - Implement automated testing in CI/CD pipeline
 - Add staging environment for testing

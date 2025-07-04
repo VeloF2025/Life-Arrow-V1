@@ -1,20 +1,34 @@
 {
   "indexes": [
     {
-      "collectionGroup": "users",
+      "collectionGroup": "appointments",
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "role",
+          "fieldPath": "centreId",
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "isActive",
+          "fieldPath": "status",
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "centreIds",
-          "arrayConfig": "CONTAINS"
+          "fieldPath": "startTime",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "appointments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "clientId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "dateTime",
+          "order": "ASCENDING"
         }
       ]
     },
@@ -37,11 +51,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "centreId",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "status",
+          "fieldPath": "clientId",
           "order": "ASCENDING"
         },
         {
@@ -69,6 +79,20 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
+          "fieldPath": "staffId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "startTime",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "appointments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
           "fieldPath": "status",
           "order": "ASCENDING"
         },
@@ -79,7 +103,7 @@
       ]
     },
     {
-      "collectionGroup": "progressEntries",
+      "collectionGroup": "goals",
       "queryScope": "COLLECTION",
       "fields": [
         {
@@ -87,7 +111,11 @@
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "recordedAt",
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
           "order": "DESCENDING"
         }
       ]
@@ -111,7 +139,7 @@
       ]
     },
     {
-      "collectionGroup": "goals",
+      "collectionGroup": "progressEntries",
       "queryScope": "COLLECTION",
       "fields": [
         {
@@ -119,15 +147,29 @@
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "status",
+          "fieldPath": "recordedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "role",
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "createdAt",
-          "order": "DESCENDING"
+          "fieldPath": "isActive",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "centreIds",
+          "arrayConfig": "CONTAINS"
         }
       ]
     }
   ],
   "fieldOverrides": []
-} 
+}

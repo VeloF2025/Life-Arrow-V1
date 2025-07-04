@@ -33,11 +33,16 @@ export function Select({
   className = ''
 }: SelectProps) {
   // Convert string array to SelectOption array if needed
-  const selectOptions: SelectOption[] = options.map(option => 
+  // Add null check to prevent errors when options is undefined
+  const selectOptions: SelectOption[] = options?.map(option => 
     typeof option === 'string' ? { value: option, label: option } : option
-  );
+  ) || [];
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    console.log('Select changed:', e.target.value);
+    // Log the selected option for debugging
+    const selectedOption = selectOptions.find(opt => opt.value === e.target.value);
+    console.log('Selected option:', selectedOption);
     onChange(e.target.value);
   };
 

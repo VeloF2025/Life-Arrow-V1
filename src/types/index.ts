@@ -72,6 +72,31 @@ export interface ClientProfile extends UserProfile {
 }
 
 // Client Related Types
+
+export interface Client {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+  dateOfBirth?: string | Date;
+  gender?: 'male' | 'female' | 'other' | 'prefer-not-to-say';
+  occupation?: string;
+  company?: string;
+  notes?: string;
+  photoUrl?: string;
+  status: 'active' | 'inactive' | 'pending';
+  createdAt: Date;
+  updatedAt?: Date;
+  lastAppointment?: Date;
+  nextAppointment?: Date;
+  treatmentCentreId?: string;
+}
 export interface EmergencyContact {
   name: string;
   relationship: string;
@@ -178,7 +203,6 @@ export interface Appointment {
   staffId: string;
   startTime: Date;
   endTime: Date;
-  dateTime: Date; // Alternative field name for compatibility
   duration: number; // Duration in minutes
   status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no-show' | 'rescheduled';
   notes?: string;
@@ -212,6 +236,7 @@ export interface Appointment {
 
 export interface Service {
   id: string;
+  centreId: string;
   name: string;
   description: string;
   duration: number; // minutes
@@ -497,8 +522,8 @@ export interface ServiceManagement {
   updatedAt: Date;
 }
 
-// Treatment Centres (Where We Operate)
-export interface TreatmentCentre {
+// Centres (Where We Operate)
+export interface Centre {
   id: string;
   name: string;
   address: {
@@ -582,7 +607,7 @@ export interface BookingRule {
 
 // Booking Data
 export interface BookingData {
-  centre: TreatmentCentre;
+  centre: Centre;
   service: ServiceManagement;
   staff: StaffMember;
   timeSlot: TimeSlot;
@@ -666,7 +691,7 @@ export interface ClientRegistrationData {
   medicalHistory?: string;
   
   // Service Information
-  myNearestTreatmentCentre: string;
+  myNearestCentre: string;
   servicesInterestedIn: string[];
   howDidYouHearAboutUs: string;
   additionalInfo?: string;

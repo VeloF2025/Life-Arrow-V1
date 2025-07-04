@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { forwardRef } from 'react';
 
 export interface CheckboxProps {
   id?: string;
@@ -13,18 +13,21 @@ export interface CheckboxProps {
   labelClassName?: string;
 }
 
-export function Checkbox({
-  id,
-  name,
-  checked,
-  onChange,
-  label,
-  required = false,
-  disabled = false,
-  error,
-  className = '',
-  labelClassName = ''
-}: CheckboxProps) {
+export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>((
+  {
+    id,
+    name,
+    checked,
+    onChange,
+    label,
+    required = false,
+    disabled = false,
+    error,
+    className = '',
+    labelClassName = ''
+  },
+  ref
+) => {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onChange(e.target.checked);
   };
@@ -34,6 +37,7 @@ export function Checkbox({
       <div className="flex items-start">
         <div className="flex items-center h-5">
           <input
+            ref={ref}
             id={id || name}
             name={name}
             type="checkbox"
@@ -77,4 +81,4 @@ export function Checkbox({
       )}
     </div>
   );
-} 
+}); 

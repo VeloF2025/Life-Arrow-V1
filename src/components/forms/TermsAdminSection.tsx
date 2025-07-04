@@ -46,8 +46,8 @@ export function TermsAdminSection({
             {data.preferredMethodOfContact && (
               <p><strong>Preferred Contact:</strong> {data.preferredMethodOfContact}</p>
             )}
-            {data.myNearestTreatmentCentre && (
-              <p><strong>Treatment Centre:</strong> {data.myNearestTreatmentCentre}</p>
+            {data.myNearestCentre && (
+              <p><strong>Centre:</strong> {data.myNearestCentre}</p>
             )}
           </div>
         </div>

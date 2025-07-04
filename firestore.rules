@@ -1,59 +1,18 @@
-rules_version = '2';
+rules_version='2'
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users can access their own profile, admins can access all
-    match /users/{userId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Clients collection - allow all authenticated users (staff/admin/super-admin)
-    match /clients/{clientId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Services collection - allow all authenticated users
-    match /services/{serviceId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Treatment centres collection - allow all authenticated users
-    match /centres/{centreId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Staff collection - allow all authenticated users
-    match /staff/{staffId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Client profiles - allow all authenticated users to read/write
-    match /clientProfiles/{userId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Admin profiles - allow all authenticated users to read/write
-    match /adminProfiles/{userId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Appointments - allow all authenticated users full access
-    match /appointments/{appointmentId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Progress entries - allow all authenticated users
-    match /progressEntries/{entryId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Health metrics - allow all authenticated users
-    match /healthMetrics/{metricId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Goals - allow all authenticated users
-    match /goals/{goalId} {
-      allow read, write: if request.auth != null;
+    match /{document=**} {
+      // This rule allows anyone with your database reference to view, edit,
+      // and delete all data in your database. It is useful for getting
+      // started, but it is configured to expire after 30 days because it
+      // leaves your app open to attackers. At that time, all client
+      // requests to your database will be denied.
+      //
+      // Make sure to write security rules for your app before that time, or
+      // else all client requests to your database will be denied until you
+      // update your rules.
+      allow read, write: if request.time < timestamp.date(2025, 8, 2);
     }
   }
-} 
+}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { forwardRef } from 'react';
 
 export interface TextAreaProps {
   id?: string;
@@ -16,21 +16,24 @@ export interface TextAreaProps {
   helpText?: string;
 }
 
-export function TextArea({
-  id,
-  name,
-  value,
-  onChange,
-  placeholder,
-  required = false,
-  disabled = false,
-  error,
-  label,
-  rows = 4,
-  maxLength,
-  className = '',
-  helpText
-}: TextAreaProps) {
+export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>((
+  {
+    id,
+    name,
+    value,
+    onChange,
+    placeholder,
+    required = false,
+    disabled = false,
+    error,
+    label,
+    rows = 4,
+    maxLength,
+    className = '',
+    helpText
+  },
+  ref
+) => {
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onChange(e.target.value);
   };
@@ -51,6 +54,7 @@ export function TextArea({
       )}
       
       <textarea
+        ref={ref}
         id={id || name}
         name={name}
         value={value || ''}
@@ -114,4 +118,4 @@ export function TextArea({
       </div>
     </div>
   );
-} 
+}); 

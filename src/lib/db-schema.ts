@@ -19,6 +19,28 @@ export interface BaseDocument {
 }
 
 /**
+ * Time slot interface
+ */
+export interface TimeSlot {
+  isAvailable: boolean;
+  start: string;
+  end: string;
+}
+
+/**
+ * Availability interface
+ */
+export interface Availability {
+  monday: TimeSlot[];
+  tuesday: TimeSlot[];
+  wednesday: TimeSlot[];
+  thursday: TimeSlot[];
+  friday: TimeSlot[];
+  saturday: TimeSlot[];
+  sunday: TimeSlot[];
+}
+
+/**
  * User document interface
  * Single collection for all users with role-specific fields
  */
@@ -26,6 +48,7 @@ export interface UserDocument extends BaseDocument {
   email: string;
   firstName: string;
   lastName: string;
+  fullName?: string; // Added for easier display of staff names
   displayName?: string;
   photoURL?: string;
   phone?: string;
@@ -54,13 +77,7 @@ export interface UserDocument extends BaseDocument {
   qualifications?: string;
   bio?: string;
   experience?: string;
-  availability?: {
-    [key: string]: { // Day of week
-      start: string; // HH:MM format
-      end: string; // HH:MM format
-      isAvailable: boolean;
-    }[];
-  };
+  availability?: Availability;
   serviceIds?: string[]; // Services this staff member can perform
   
   // Client-specific fields
