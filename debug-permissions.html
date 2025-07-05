@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Permissions</title>
+</head>
+<body>
+    <h1>Permission Debug Test</h1>
+    <p>Open browser console and check the output</p>
+    
+    <script>
+        // Simulate the permission check logic
+        const Permissions = {
+            VIEW_SCANS: 'scans.view',
+            UPLOAD_SCANS: 'scans.upload',
+            ASSIGN_SCANS: 'scans.assign',
+            DELETE_SCANS: 'scans.delete',
+        };
+        
+        const adminPermissions = [
+            'scans.view',
+            'scans.upload', 
+            'scans.assign',
+            'scans.delete'
+        ];
+        
+        const RolePermissions = {
+            'client': [],
+            'staff': [],
+            'admin': adminPermissions,
+            'super-admin': Object.values(Permissions),
+        };
+        
+        function hasPermission(role, permission) {
+            if (!role || !permission) return false;
+            
+            const normalizedRole = role.toLowerCase();
+            
+            // Super admin has all permissions
+            if (normalizedRole === 'super-admin') return true;
+            
+            // Check if the role exists in our permissions map
+            if (!RolePermissions[normalizedRole]) return false;
+            
+            // Check if the role has the specific permission
+            return RolePermissions[normalizedRole].includes(permission);
+        }
+        
+        // Test cases
+        console.log('=== Permission Debug Test ===');
+        console.log('super-admin + scans.view:', hasPermission('super-admin', 'scans.view'));
+        console.log('admin + scans.view:', hasPermission('admin', 'scans.view'));
+        console.log('client + scans.view:', hasPermission('client', 'scans.view'));
+        console.log('Super-admin permissions:', RolePermissions['super-admin']);
+        console.log('Admin permissions:', RolePermissions['admin']);
+    </script>
+</body>
+</html>

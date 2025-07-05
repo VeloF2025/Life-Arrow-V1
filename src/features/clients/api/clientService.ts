@@ -9,12 +9,19 @@ import {
   updateDoc, 
   where, 
   serverTimestamp,
-  getDoc,
-  Timestamp 
+  getDoc
 } from 'firebase/firestore';
 import { db, storage } from '@/lib/firebase';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import type { Client, TreatmentCentre, Appointment } from '@/types';
+import type { Client, Appointment } from '@/types';
+
+// Define TreatmentCentre type if it's not exported from @/types
+interface TreatmentCentre {
+  id?: string;
+  name: string;
+  address?: string;
+  [key: string]: any;
+}
 
 export const clientService = {
   /**
@@ -295,6 +302,90 @@ export const clientService = {
     } catch (error) {
       console.error('Error fetching client appointments:', error);
       return [];
+    }
+  },
+  
+  /**
+   * Find client by name or ID number
+   * Used for auto-matching scans to clients
+   */
+  findByNameOrId: async (identifier: string): Promise<Client | null> => {
+    try {
+      if (!identifier) return null;
+      
+      // First try to find by ID number (exact match)
+      if (/^\d{10,13}$/.test(identifier)) {
+        const clientsRef = collection(db, 'clients');
+        const q = query(clientsRef, where('idNumber', '==', identifier));
+        const querySnapshot = await getDocs(q);
+        
+        if (!querySnapshot.empty) {
+          const doc = querySnapshot.docs[0];
+          return { id: doc.id, ...doc.data() } as Client;
+        }
+      }
+      
+      // If not found by ID, try to find by name
+      // Split the identifier into name parts
+      const nameParts = identifier.split(' ').filter(part => part.trim().length > 0);
+      
+      if (nameParts.length > 0) {
+        // Get all clients
+        const clientsRef = collection(db, 'clients');
+        const q = query(clientsRef);
+        const querySnapshot = await getDocs(q);
+        
+        const clients = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            _score: 0 // Add score property for matching
+          };
+        });
+        
+        // Score each client based on name match
+        const scoredClients = clients.map(client => {
+          let score = 0;
+          const firstName = client.firstName || '';
+          const lastName = client.lastName || '';
+          const fullName = `${firstName} ${lastName}`.toLowerCase();
+          
+          // Check each name part against the client's name
+          nameParts.forEach(part => {
+            const partLower = part.toLowerCase();
+            if (fullName.includes(partLower)) {
+              score += 1;
+              
+              // Boost score for exact matches of first or last name
+              if (firstName.toLowerCase() === partLower || 
+                  lastName.toLowerCase() === partLower) {
+                score += 2;
+              }
+            }
+          });
+          
+          return { ...client, _score: score };
+        });
+        
+        // Filter clients with a score > 0 and sort by score (highest first)
+        const matchedClients = scoredClients
+          .filter(client => client._score > 0)
+          .sort((a, b) => b._score - a._score);
+        
+        // Return the best match if any
+        if (matchedClients.length > 0) {
+          const bestMatch = { ...matchedClients[0] };
+          // Remove the score property using a type-safe approach
+          const { _score, ...clientWithoutScore } = bestMatch;
+          return clientWithoutScore as Client;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error finding client by name or ID:', error);
+      return null;
     }
   }
 };

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { useDashboardData } from '../../hooks/useDashboardData';
@@ -40,6 +41,7 @@ import { ClientManagementPage } from '../../features/clients';
 import SystemLogsViewer from '../../components/admin/SystemLogsViewer';
 import { ProfileDropdown } from '../../components/ui/ProfileDropdown';
 import { UserProfileValidator } from '../../components/admin/UserProfileValidator';
+import { ScanManagement } from '../../features/scans/components/ScanManagement';
 
 import Settings from '../admin/Settings';
 
@@ -48,15 +50,56 @@ type AdminSection = 'overview' | 'clients' | 'appointments' | 'services' | 'cent
 export function Dashboard() {
   const { profile, loading } = useUserProfile();
   const { stats, loading: statsLoading, error: statsError } = useDashboardData(profile);
+  const location = useLocation();
+  const navigate = useNavigate();
+  
+  // Determine initial section from URL or location state
+  const initialSection = useMemo(() => {
+    // Check if we have a section in the location state
+    if (location.state && location.state.activeSection) {
+      return location.state.activeSection as AdminSection;
+    }
+    
+    // Otherwise, try to get the section from the URL path
+    const pathSegments = location.pathname.split('/');
+    const lastSegment = pathSegments[pathSegments.length - 1];
+    
+    // Check if the last segment is a valid admin section
+    if (lastSegment && lastSegment !== 'admin') {
+      const validSections = ['overview', 'clients', 'appointments', 'services', 'centres', 
+                           'staff', 'scans', 'videos', 'wellness-plans', 'reports', 
+                           'settings', 'system-logs', 'site-health'];
+      if (validSections.includes(lastSegment)) {
+        return lastSegment as AdminSection;
+      }
+    }
+    
+    // Special case for /admin/scans URL
+    if (location.pathname === '/admin/scans') {
+      return 'scans' as AdminSection;
+    }
+    
+    // Default to overview
+    return 'overview' as AdminSection;
+  }, [location]);
+  
   const [showUserRoles, setShowUserRoles] = useState(false);
   const [showCreateAdmin, setShowCreateAdmin] = useState(false);
   const [showAdminSetup, setShowAdminSetup] = useState(false);
-  const [activeSection, setActiveSection] = useState<AdminSection>('overview');
+  const [activeSection, setActiveSection] = useState<AdminSection>(initialSection);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [siteHealthTab, setSiteHealthTab] = useState<'audit' | 'profiles'>('audit');
 
   const isSuperAdmin = profile?.role === 'super-admin';
 
+  // Handle section navigation
+  const handleSectionClick = (sectionId: string) => {
+    setActiveSection(sectionId as AdminSection);
+    setSidebarOpen(false); // Close mobile sidebar on item click
+    
+    // Update the URL to reflect the current section
+    navigate(`/admin/${sectionId}`, { replace: true });
+  };
 
 
   // Helper function to format currency
@@ -109,7 +152,7 @@ export function Dashboard() {
     { id: 'services', label: 'Services', icon: ClipboardDocumentListIcon },
     { id: 'centres', label: 'Centres', icon: BuildingOfficeIcon },
     { id: 'staff', label: 'Staff', icon: UserGroupIcon },
-    { id: 'scans', label: 'Scans', icon: ChartPieIcon },
+    { id: 'scans', label: 'Scan Management', icon: DocumentTextIcon },
     { id: 'videos', label: 'Videos', icon: VideoCameraIcon },
     { id: 'wellness-plans', label: 'Wellness Plans', icon: DocumentTextIcon },
     { id: 'reports', label: 'Reports', icon: ChartBarIcon },
@@ -117,6 +160,10 @@ export function Dashboard() {
     { id: 'system-logs', label: 'System Logs', icon: CodeBracketIcon },
     ...(profile?.role === 'super-admin' ? [{ id: 'site-health', label: 'Site Health', icon: HeartIcon }] : []),
   ] as const;
+  
+  // No useEffect hook here - we'll handle URL syncing differently
+  
+
 
   const renderSiteHealth = () => {
     if (profile?.role !== 'super-admin') return null;
@@ -169,22 +216,24 @@ export function Dashboard() {
         return renderOverviewDashboard();
       case 'clients':
         return renderClientsManagement();
+      case 'appointments':
+        return renderAppointmentsManagement();
       case 'services':
         return <ServiceManagement />;
       case 'centres':
         return renderCentresManagement();
       case 'staff':
         return renderStaffManagement();
-      case 'appointments':
-        return renderAppointmentsManagement();
+      case 'scans':
+        return <ScanManagement />;
       case 'site-health':
         return renderSiteHealth();
-      case 'audit':
-        return profile?.role === 'super-admin' ? <AuditPage /> : null;
       case 'system-logs':
         return renderSystemLogs();
       case 'settings':
         return renderSettings();
+      case 'audit':
+        return <AuditPage />;
       default:
         return (
           <div className="page-container">
@@ -538,10 +587,7 @@ export function Dashboard() {
             return (
               <button
                 key={item.id}
-                onClick={() => {
-                  setActiveSection(item.id as AdminSection);
-                  setSidebarOpen(false); // Close mobile sidebar on item click
-                }}
+                onClick={() => handleSectionClick(item.id)}
                 className={isActive ? 'sidebar-item-active' : 'sidebar-item'}
               >
                 <Icon className="sidebar-icon" />

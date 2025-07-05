@@ -52,6 +52,12 @@ export const Permissions = {
   DELETE_CLIENT: 'delete_client',
   IMPORT_CLIENTS: 'import_clients',
 
+  // Scan management permissions
+  VIEW_SCANS: 'scans.view',
+  UPLOAD_SCANS: 'scans.upload',
+  ASSIGN_SCANS: 'scans.assign',
+  DELETE_SCANS: 'scans.delete',
+
   // Super admin permissions
   MANAGE_SYSTEM: 'manage_system',
   PROMOTE_TO_SUPERADMIN: 'promote_to_superadmin',
@@ -106,6 +112,12 @@ const adminPermissions = [
   Permissions.EDIT_CLIENT,
   Permissions.DELETE_CLIENT,
   Permissions.IMPORT_CLIENTS,
+  
+  // Scan Management
+  Permissions.VIEW_SCANS,
+  Permissions.UPLOAD_SCANS,
+  Permissions.ASSIGN_SCANS,
+  Permissions.DELETE_SCANS,
 ];
 
 // Define permissions for each role

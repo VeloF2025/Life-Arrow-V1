@@ -7,6 +7,10 @@ import PermissionProtectedRoute from './components/auth/PermissionProtectedRoute
 
 // Admin pages
 import MigrationPage from './pages/admin/MigrationPage';
+// Removed ScanManagementPage import as we're using Dashboard with scans section
+// Test components
+import UnmatchedScansTest from './features/scans/tests/UnmatchedScansTest';
+// Removed ScansPage import as it's no longer needed
 
 // Page imports
 import LandingPage from './pages/LandingPage';
@@ -118,6 +122,8 @@ function AppContent() {
           } 
         />
         
+        {/* Removed general /scans route - using only the admin scan management route */}
+        
         {/* Protected routes - Admin */}
         <Route 
           path="/admin/dashboard" 
@@ -144,6 +150,29 @@ function AppContent() {
               <MigrationPage />
             </PermissionProtectedRoute>
           } 
+        />
+        
+        {/* Scan Management Page */}
+        <Route 
+          path="/admin/scans" 
+          element={
+            <PermissionProtectedRoute 
+              requiredPermissions={[
+                Permissions.VIEW_STAFF,
+                Permissions.VIEW_CLIENTS,
+                Permissions.VIEW_SERVICES
+              ]}
+              requireAll={false}
+            >
+              <AdminDashboard />
+            </PermissionProtectedRoute>
+          } 
+        />
+        
+        {/* Test route for unmatched scans - Only in development */}
+        <Route 
+          path="/test/unmatched-scans" 
+          element={<UnmatchedScansTest />} 
         />
         
         <Route 
