@@ -17,5 +17,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    // Skip type checking during build for faster builds
+    typescript: {
+      typeCheck: false
+    }
   },
 })

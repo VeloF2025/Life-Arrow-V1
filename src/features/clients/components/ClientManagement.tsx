@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { hasPermission } from '@/lib/permissions';
 import { MagnifyingGlassIcon, XMarkIcon, ExclamationTriangleIcon, UserIcon } from '@heroicons/react/24/outline';
-import { PlusIcon, ArrowPathIcon, TrashIcon } from '@heroicons/react/24/solid';
+import { PlusIcon, ArrowPathIcon, TrashIcon, ArrowUpTrayIcon } from '@heroicons/react/24/solid';
 
 import { AppointmentManagement } from '@/features/appointments/components/AppointmentManagement';
 
@@ -14,6 +16,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { Modal } from '@/components/ui/Modal';
+import { ClientImport } from './ClientImport';
 
 
 export function ClientManagement() {
@@ -47,7 +50,11 @@ export function ClientManagement() {
 
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [clientToBookAppointment, setClientToBookAppointment] = useState<Client | null>(null);
+
+  const { user } = useAuth();
+  const canImportClients = user?.role && hasPermission(user.role, 'import_clients');
 
   const toggleCardExpansion = (clientId: string) => {
     const newExpandedCards = new Set(expandedCards);
@@ -94,6 +101,12 @@ export function ClientManagement() {
             <Button onClick={handleCreateNew} className="bg-primary-600 hover:bg-primary-700">
               <PlusIcon className="w-5 h-5 mr-2" />
               New Client
+            </Button>
+          )}
+          {canImportClients && (
+            <Button onClick={() => setShowImportModal(true)} className="bg-primary-600 hover:bg-primary-700">
+              <ArrowUpTrayIcon className="w-5 h-5 mr-2" />
+              Import
             </Button>
           )}
           <Button onClick={() => refetch()} variant="outline">
@@ -241,6 +254,23 @@ export function ClientManagement() {
           />
         </Modal>
       )}
+      
+      {/* Client Import Modal */}
+      <Modal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        title="Import Clients"
+        size="xl"
+      >
+        <div className="p-4">
+          <ClientImport />
+        </div>
+        <div className="p-4 bg-gray-50 border-t flex justify-end">
+          <Button variant="outline" onClick={() => setShowImportModal(false)}>
+            Close
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

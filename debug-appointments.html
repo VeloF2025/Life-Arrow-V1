@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Appointments</title>
+</head>
+<body>
+    <h1>Appointment Overlap Debug</h1>
+    <div id="output"></div>
+    
+    <script>
+        // Open browser console to see the debug output
+        console.log('=== APPOINTMENT OVERLAP DEBUG ===');
+        
+        // Simulate the appointments we see in the UI
+        const appointments = [
+            {
+                id: '1',
+                clientName: 'Dominique Bezuidenhout',
+                serviceName: 'Body Memory Treatment (Nutritionist)',
+                staffName: 'Marietjie Visser',
+                date: '2025-07-11',
+                time: '10:30',
+                duration: 60
+            },
+            {
+                id: '2', 
+                clientName: 'Dominique Bezuidenhout',
+                serviceName: 'Body Memory Treatment (Nutritionist)',
+                staffName: 'Marietjie Visser',
+                date: '2025-07-11',
+                time: '11:00',
+                duration: 30
+            }
+        ];
+        
+        const timeToMinutes = (time) => {
+            if (!time || !time.includes(':')) return 0;
+            const [hours, minutes] = time.split(':').map(Number);
+            return hours * 60 + minutes;
+        };
+        
+        console.log('Appointments for Marietjie Visser on 2025-07-11:');
+        appointments.forEach((appt, index) => {
+            const startMinutes = timeToMinutes(appt.time);
+            const endMinutes = startMinutes + appt.duration;
+            const endHours = Math.floor(endMinutes / 60);
+            const endMins = endMinutes % 60;
+            
+            console.log(`${index + 1}. ${appt.time} - ${endHours}:${endMins.toString().padStart(2, '0')} (${appt.duration}min) - ${appt.serviceName}`);
+        });
+        
+        // Check for overlaps
+        console.log('\nOverlap Analysis:');
+        for (let i = 0; i < appointments.length; i++) {
+            for (let j = i + 1; j < appointments.length; j++) {
+                const appt1 = appointments[i];
+                const appt2 = appointments[j];
+                
+                const start1 = timeToMinutes(appt1.time);
+                const end1 = start1 + appt1.duration;
+                const start2 = timeToMinutes(appt2.time);
+                const end2 = start2 + appt2.duration;
+                
+                const overlaps = (start1 < end2 && end1 > start2);
+                
+                if (overlaps) {
+                    console.log(`❌ OVERLAP DETECTED:`);
+                    console.log(`   ${appt1.time}-${Math.floor(end1/60)}:${(end1%60).toString().padStart(2,'0')} vs ${appt2.time}-${Math.floor(end2/60)}:${(end2%60).toString().padStart(2,'0')}`);
+                } else {
+                    console.log(`✅ No overlap: ${appt1.time} vs ${appt2.time}`);
+                }
+            }
+        }
+        
+        document.getElementById('output').innerHTML = `
+            <h2>Check Browser Console for Details</h2>
+            <p>Appointments analyzed: ${appointments.length}</p>
+            <pre>${JSON.stringify(appointments, null, 2)}</pre>
+        `;
+    </script>
+</body>
+</html>

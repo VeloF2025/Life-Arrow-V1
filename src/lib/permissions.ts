@@ -50,6 +50,7 @@ export const Permissions = {
   CREATE_CLIENT: 'create_client',
   EDIT_CLIENT: 'edit_client',
   DELETE_CLIENT: 'delete_client',
+  IMPORT_CLIENTS: 'import_clients',
 
   // Super admin permissions
   MANAGE_SYSTEM: 'manage_system',
@@ -99,6 +100,12 @@ const adminPermissions = [
   
   Permissions.EDIT_CENTRE,
   Permissions.VIEW_ADMINS,
+
+  // Client Management
+  Permissions.CREATE_CLIENT,
+  Permissions.EDIT_CLIENT,
+  Permissions.DELETE_CLIENT,
+  Permissions.IMPORT_CLIENTS,
 ];
 
 // Define permissions for each role

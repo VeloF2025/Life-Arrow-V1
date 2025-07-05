@@ -4,8 +4,8 @@ import { useUserProfile } from '../../hooks/useUserProfile';
 import { useProfileCompletion } from '../../hooks/useProfileCompletion';
 import { auth } from '../../lib/firebase';
 import { signOut } from 'firebase/auth';
-import { ProfileManagement } from '../../components/forms/ProfileManagement';
 import { ProfileCompletionForm } from '../../components/forms/ProfileCompletionForm';
+import { AppointmentManagement } from '../../features/appointments/components/AppointmentManagement';
 import { 
   ChartBarIcon,
   CalendarDaysIcon,
@@ -396,10 +396,19 @@ export default function ClientDashboard() {
 
           {activeSection === 'appointments' && (
             <div className="card">
-              <div className="text-center py-12">
-                <CalendarDaysIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">My Appointments</h2>
-                <p className="text-gray-600">Your appointment history and upcoming bookings will appear here.</p>
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-xl font-semibold text-gray-900">My Appointments</h2>
+                <p className="text-gray-600 mt-1">Schedule and manage your appointments</p>
+              </div>
+              <div className="p-6">
+                <AppointmentManagement 
+                  initialClientId={profile?.id} 
+                  onAppointmentBooked={() => {
+                    // Refresh or show success message
+                    console.log('Appointment booked successfully!');
+                  }}
+                  clientMode={true}
+                />
               </div>
             </div>
           )}

@@ -18,27 +18,17 @@ import {
 import { db } from '../../../lib/firebase';
 import { format } from 'date-fns';
 import { Button } from '../../../components/ui/Button';
-
-// Simple toast implementation for notifications
-const showToast = {
-  success: (message: string) => {
-    console.log('SUCCESS:', message);
-    alert('Success: ' + message);
-  },
-  error: (message: string) => {
-    console.log('ERROR:', message);
-    alert('Error: ' + message);
-  },
-  info: (message: string) => {
-    console.log('INFO:', message);
-  }
-};
-
 import { Modal } from '../../../components/ui/Modal';
 import { staffService } from '../../staff/api/staffService';
 import { clientService } from '../../clients/api/clientService';
 import { centreService } from '../../centres/api/centreService';
 import { serviceService } from '../../services/api/serviceService';
+
+// Mock toast until react-toastify is properly installed
+const toast = {
+  success: (message: string) => console.log('SUCCESS:', message),
+  error: (message: string) => console.error('ERROR:', message)
+};
 
 // UI Components
 const Select: React.FC<SelectProps> = ({ value, onChange, options, placeholder, disabled = false, className }) => (
@@ -213,13 +203,8 @@ interface AppointmentManagementProps {
 
 // Helper function to convert "HH:mm" to minutes from midnight
 const timeToMinutes = (time: string): number => {
-  try {
-    const [hours, minutes] = time.split(':').map(Number);
-    return hours * 60 + minutes;
-  } catch (error) {
-    console.error('Error parsing time:', time, error);
-    return 0;
-  }
+  const [hours, minutes] = time.split(':').map(Number);
+  return hours * 60 + minutes;
 };
 
 // Generate available time slots based on staff availability and existing appointments
@@ -229,65 +214,46 @@ const generateAvailableSlots = (
   serviceDuration: number,
   selectedDate: string
 ): string[] => {
-  if (!selectedDate || !availability) {
-    console.log('Missing required data:', { selectedDate, hasAvailability: !!availability });
-    return [];
+  if (!selectedDate || !availability) return [];
+  const dayName = format(new Date(selectedDate.replace(/-/g, '/')), 'eeee').toLowerCase() as keyof Availability;
+  const staffWorkingHours = availability[dayName];
+
+  if (!staffWorkingHours || staffWorkingHours.every(slot => !slot.isAvailable)) {
+    return []; // Staff not available on this day
   }
-  
-  try {
-    // Format date properly to get day name
-    const dateObj = new Date(selectedDate);
-    const dayName = format(dateObj, 'EEEE').toLowerCase() as keyof Availability;
-    console.log('Day name for selected date:', { selectedDate, dayName });
-    
-    const staffWorkingHours = availability[dayName];
-    console.log('Staff working hours for day:', staffWorkingHours);
 
-    if (!staffWorkingHours || staffWorkingHours.length === 0 || staffWorkingHours.every(slot => !slot.isAvailable)) {
-      console.log('Staff not available on this day');
-      return []; // Staff not available on this day
-    }
+  const bookedTimeRanges = existingAppointments.map(appt => {
+    const start = timeToMinutes(appt.time);
+    const end = start + (appt.duration || serviceDuration);
+    return { start, end };
+  });
 
-    const bookedTimeRanges = existingAppointments.map(appt => {
-      const start = timeToMinutes(appt.time);
-      const end = start + (appt.duration || serviceDuration);
-      return { start, end, appointmentId: appt.id };
-    });
-    console.log('Booked time ranges:', bookedTimeRanges);
+  const availableSlotsList: string[] = [];
+  const slotIncrement = 15; // Check for a slot every 15 minutes
 
-    const availableSlotsList: string[] = [];
-    const slotIncrement = 15; // Check for a slot every 15 minutes
+  staffWorkingHours.forEach(workSlot => {
+    if (!workSlot.isAvailable) return;
 
-    staffWorkingHours.forEach(workSlot => {
-      if (!workSlot.isAvailable) return;
+    const workStart = timeToMinutes(workSlot.start);
+    const workEnd = timeToMinutes(workSlot.end);
 
-      const workStart = timeToMinutes(workSlot.start);
-      const workEnd = timeToMinutes(workSlot.end);
-      console.log('Processing work slot:', { workStart, workEnd, start: workSlot.start, end: workSlot.end });
+    for (let slotStart = workStart; slotStart + serviceDuration <= workEnd; slotStart += slotIncrement) {
+      const slotEnd = slotStart + serviceDuration;
 
-      for (let slotStart = workStart; slotStart + serviceDuration <= workEnd; slotStart += slotIncrement) {
-        const slotEnd = slotStart + serviceDuration;
+      const isOverlapping = bookedTimeRanges.some(booked =>
+        (slotStart < booked.end && slotEnd > booked.start)
+      );
 
-        const isOverlapping = bookedTimeRanges.some(booked =>
-          (slotStart < booked.end && slotEnd > booked.start)
-        );
-
-        if (!isOverlapping) {
-          const hours = Math.floor(slotStart / 60).toString().padStart(2, '0');
-          const minutes = (slotStart % 60).toString().padStart(2, '0');
-          availableSlotsList.push(`${hours}:${minutes}`);
-        }
+      if (!isOverlapping) {
+        const hours = Math.floor(slotStart / 60).toString().padStart(2, '0');
+        const minutes = (slotStart % 60).toString().padStart(2, '0');
+        availableSlotsList.push(`${hours}:${minutes}`);
       }
-    });
+    }
+  });
 
-    console.log('Generated available slots:', availableSlotsList);
-    return [...new Set(availableSlotsList)];
-  } catch (error) {
-    console.error('Error generating available slots:', error);
-    return [];
-  }
+  return [...new Set(availableSlotsList)];
 };
-// Main component
 export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   initialClientId,
   onAppointmentBooked,
@@ -358,8 +324,8 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     queryKey: ['clients'],
     queryFn: async () => {
       try {
-        const clients = await clientService.getAll();
-        return clients.map((client: Client) => ({
+        const clients = await clientService.getClients();
+        return clients.map(client => ({
           ...client,
           fullName: `${client.firstName || ''} ${client.lastName || ''}`.trim()
         }));
@@ -375,8 +341,8 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     queryKey: ['staff'],
     queryFn: async () => {
       try {
-        const staff = await staffService.getAllForAdmin();
-        return staff.map((member: StaffMember) => ({
+        const staff = await staffService.getStaffMembers();
+        return staff.map(member => ({
           ...member,
           fullName: member.displayName || `${member.firstName || ''} ${member.lastName || ''}`.trim()
         }));
@@ -392,7 +358,7 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     queryKey: ['services'],
     queryFn: async () => {
       try {
-        return await serviceService.getAll();
+        return await serviceService.getServices();
       } catch (error) {
         console.error('Error fetching services:', error);
         return [];
@@ -405,7 +371,7 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     queryKey: ['centres'],
     queryFn: async () => {
       try {
-        return await centreService.getAll();
+        return await centreService.getCentres();
       } catch (error) {
         console.error('Error fetching centres:', error);
         return [];
@@ -414,10 +380,10 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   });
 
   // Options for dropdowns
-  const clientOptions = allClients.map((c: EnrichedClient) => ({ value: c.id, label: c.fullName || `Client ${c.id}` }));
-  const staffOptions = allStaff.map((s: EnrichedStaffMember) => ({ value: s.id, label: s.fullName || `Staff ${s.id}` }));
-  const serviceOptions = allServices.map((s: Service) => ({ value: s.id, label: s.name }));
-  const centreOptions = allCentres.map((c: TreatmentCentre) => ({ value: c.id, label: c.name }));
+  const clientOptions = allClients.map(c => ({ value: c.id, label: c.fullName || `Client ${c.id}` }));
+  const staffOptions = allStaff.map(s => ({ value: s.id, label: s.fullName || `Staff ${s.id}` }));
+  const serviceOptions = allServices.map(s => ({ value: s.id, label: s.name }));
+  const centreOptions = allCentres.map(c => ({ value: c.id, label: c.name }));
   
   // Form change handlers
   const handleCreateFormChange = (field: string, value: any) => {
@@ -441,52 +407,31 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       return;
     }
 
-    const staff = allStaff.find((s: EnrichedStaffMember) => s.id === staffId);
-    const service = allServices.find((s: Service) => s.id === serviceId);
+    const staff = allStaff.find(s => s.id === staffId);
+    const service = allServices.find(s => s.id === serviceId);
     
-    if (!staff || !service) {
+    if (!staff?.availability || !service) {
       setAvailableTimeSlots([]);
       return;
     }
-
-    // Create default availability if none exists
-    const availability = staff.availability || {
-      monday: [{ isAvailable: true, start: '09:00', end: '17:00' }],
-      tuesday: [{ isAvailable: true, start: '09:00', end: '17:00' }],
-      wednesday: [{ isAvailable: true, start: '09:00', end: '17:00' }],
-      thursday: [{ isAvailable: true, start: '09:00', end: '17:00' }],
-      friday: [{ isAvailable: true, start: '09:00', end: '17:00' }],
-      saturday: [{ isAvailable: false, start: '09:00', end: '17:00' }],
-      sunday: [{ isAvailable: false, start: '09:00', end: '17:00' }]
-    };
 
     const staffAppointments = allAppointments.filter(a => 
       a.staffId === staffId && a.date === date
     );
 
-    console.log('Generating available slots with:', {
-      staffId,
-      date,
-      serviceId,
-      staffAvailability: availability,
-      serviceDuration: service.duration,
-      existingAppointments: staffAppointments
-    });
-
     const slots = generateAvailableSlots(
-      availability,
+      staff.availability,
       staffAppointments,
       service.duration,
       date
     );
 
-    console.log('Generated slots:', slots);
     setAvailableTimeSlots(slots);
   };
 
   // Get service by ID
   const getServiceById = (id: string) => {
-    return allServices.find((s: Service) => s.id === id);
+    return allServices.find(s => s.id === id);
   };
 
   // Format date safely
@@ -546,11 +491,11 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     
     try {
       await deleteDoc(doc(db, 'appointments', selectedAppointment.id));
-      showToast.success('Appointment deleted successfully');
+      toast.success('Appointment deleted successfully');
       setShowDeleteModal(false);
       refetch();
     } catch (error) {
-      showToast.error('Failed to delete appointment');
+      toast.error('Failed to delete appointment');
       console.error('Error deleting appointment:', error);
     }
   };
@@ -560,45 +505,25 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     e.preventDefault();
     
     try {
-      const { clientId, staffId, centreId, serviceId, date, time, notes } = createFormData;
+      const { clientId, staffId, centreId, serviceId, date, time, duration, notes, status } = createFormData;
       
-      // Get related entities for validation
-      const client = clientMode && initialClientId ? 
-        allClients.find((c: Client) => c.id === initialClientId) : 
-        allClients.find((c: Client) => c.id === clientId);
-      const staff = allStaff.find((s: StaffMember) => s.id === staffId);
-      const centre = allCentres.find((c: TreatmentCentre) => c.id === centreId);
-      const service = allServices.find((s: Service) => s.id === serviceId);
+      // Get names for display
+      const client = allClients.find(c => c.id === clientId);
+      const staff = allStaff.find(s => s.id === staffId);
+      const centre = allCentres.find(c => c.id === centreId);
+      const service = allServices.find(s => s.id === serviceId);
       
-      console.log('Form data validation:', { 
-        client: client ? 'found' : 'not found', 
-        staff: staff ? 'found' : 'not found', 
-        centre: centre ? 'found' : 'not found', 
-        service: service ? 'found' : 'not found' 
-      });
-      
-      // In client mode with initialClientId, we don't need to validate client selection
-      const needsClientValidation = !(clientMode && initialClientId);
-      
-      if ((needsClientValidation && !client) || !staff || !centre || !service) {
-        console.error('Missing related entities:', { 
-          client: !client, staff: !staff, centre: !centre, service: !service 
-        });
-        showToast.error('Please fill in all required fields');
+      if (!client || !staff || !centre || !service) {
+        toast.error('Please fill in all required fields');
         return;
       }
       
       // Create dateTime string
       const dateTime = `${date}T${time}`;
       
-      // Get client data safely, accounting for possible undefined
-      const clientName = client ? 
-        (client.fullName || `${client.firstName || ''} ${client.lastName || ''}`.trim()) : 
-        'Unknown Client';
-      
       const newAppointment = {
-        clientId: clientMode && initialClientId ? initialClientId : clientId,
-        clientName,
+        clientId,
+        clientName: client.fullName || `${client.firstName || ''} ${client.lastName || ''}`.trim(),
         staffId,
         staffName: staff.fullName || `${staff.firstName || ''} ${staff.lastName || ''}`.trim(),
         centreId,
@@ -608,39 +533,24 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         date,
         time,
         dateTime,
-        duration: createFormData.duration || service.duration || 60,
-        status: createFormData.status || 'scheduled',
-        notes: notes || '',
+        duration,
+        notes,
+        status,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
       
-      console.log('About to create appointment:', newAppointment);
-      
-      const docRef = await addDoc(collection(db, 'appointments'), newAppointment);
-      console.log('Appointment created with ID:', docRef.id);
-      
-      showToast.success('Appointment created successfully');
+      await addDoc(collection(db, 'appointments'), newAppointment);
+      toast.success('Appointment created successfully');
       setShowCreateModal(false);
-      setCreateFormData({
-        clientId: initialClientId || '',
-        staffId: '',
-        centreId: '',
-        serviceId: '',
-        date: '',
-        time: '',
-        duration: 0,
-        notes: '',
-        status: 'scheduled'
-      });
       refetch();
       
       if (onAppointmentBooked) {
         onAppointmentBooked();
       }
     } catch (error) {
+      toast.error('Failed to create appointment');
       console.error('Error creating appointment:', error);
-      showToast.error('Failed to create appointment: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
 
@@ -658,7 +568,7 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       const service = allServices.find(s => s.id === serviceId);
       
       if (!client || !staff || !centre || !service) {
-        showToast.error('Please fill in all required fields');
+        toast.error('Please fill in all required fields');
         return;
       }
       
@@ -684,11 +594,11 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       };
       
       await updateDoc(doc(db, 'appointments', id), updatedAppointment);
-      showToast.success('Appointment updated successfully');
+      toast.success('Appointment updated successfully');
       setShowEditModal(false);
       refetch();
     } catch (error) {
-      showToast.error('Failed to update appointment');
+      toast.error('Failed to update appointment');
       console.error('Error updating appointment:', error);
     }
   };
@@ -823,7 +733,7 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         onClose={() => setShowCreateModal(false)}
         title={clientMode ? "Book New Appointment" : "Create New Appointment"}
       >
-        <form className="space-y-4">
+        <form onSubmit={handleCreateSubmit} className="space-y-4">
           {/* Client Selection - Hidden in client mode */}
           {!clientMode && (
             <div>
@@ -894,29 +804,14 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
           {/* Time Selection */}
           <div>
             <label className="block text-sm font-medium text-gray-700">Time</label>
-            {availableTimeSlots.length > 0 ? (
-              <Select
-                value={createFormData.time}
-                onChange={(value) => handleCreateFormChange('time', value)}
-                options={availableTimeSlots.map(slot => ({ value: slot, label: slot }))}
-                placeholder="Select Time"
-                className="mt-1"
-              />
-            ) : (
-              <div className="mt-1">
-                <div className="p-2 border rounded bg-gray-50 text-gray-500">No available slots for this date</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  Please select a different date or staff member
-                </div>
-              </div>
-            )}
-            <div className="text-xs text-blue-500 mt-1 cursor-pointer" 
-                 onClick={() => {
-                   // Force refresh available slots
-                   updateAvailableTimeSlots();
-                 }}>
-              Refresh available times
-            </div>
+            <Select
+              value={createFormData.time}
+              onChange={(value) => handleCreateFormChange('time', value)}
+              options={availableTimeSlots.map(slot => ({ value: slot, label: slot }))}
+              placeholder={availableTimeSlots.length > 0 ? "Select Time" : "No available slots"}
+              disabled={availableTimeSlots.length === 0}
+              className="mt-1"
+            />
           </div>
 
           {/* Notes */}
@@ -939,12 +834,8 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
               Cancel
             </Button>
             <Button
-              type="button"
+              type="submit"
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
-              onClick={(e) => {
-                console.log('Book button clicked');
-                handleCreateSubmit(e);
-              }}
             >
               {clientMode ? "Book Appointment" : "Create Appointment"}
             </Button>
@@ -1201,4 +1092,4 @@ export const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   );
 };
 
-// Export is at the beginning of the file
+export { AppointmentManagement };
