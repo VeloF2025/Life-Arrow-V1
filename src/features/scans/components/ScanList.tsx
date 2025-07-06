@@ -1,20 +1,18 @@
 import React, { useState } from 'react';
-import type { Scan } from '../types';
+import type { Scan } from '@/types';
 import { format } from 'date-fns';
-import { EyeIcon, TrashIcon, UserPlusIcon } from '@heroicons/react/24/outline';
+import { EyeIcon, UserPlusIcon } from '@heroicons/react/24/outline';
 
 interface ScanListProps {
   scans: Scan[];
   onViewScan: (scan: Scan) => void;
   onAssignScan?: (scan: Scan) => void;
-  onDeleteScan?: (scan: Scan) => void;
 }
 
 export const ScanList: React.FC<ScanListProps> = ({
   scans,
   onViewScan,
-  onAssignScan,
-  onDeleteScan
+  onAssignScan
 }) => {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   
@@ -117,7 +115,17 @@ export const ScanList: React.FC<ScanListProps> = ({
               </tr>
             ) : (
               filteredScans.map((scan) => (
-                <tr key={scan.id} className="hover:bg-gray-50">
+                <tr 
+                  key={scan.id} 
+                  className="hover:bg-gray-50 cursor-pointer" 
+                  onClick={(e) => {
+                    // Only trigger row click if the click was directly on the row, not on a button
+                    if (e.target === e.currentTarget || e.currentTarget.contains(e.target as Node) && 
+                        !(e.target as HTMLElement).closest('button')) {
+                      onViewScan(scan);
+                    }
+                  }}
+                >
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex flex-col">
                       <div className="text-sm font-medium text-indigo-600 truncate">
@@ -132,7 +140,7 @@ export const ScanList: React.FC<ScanListProps> = ({
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {scan.userId || 'Not matched'}
+                    {scan.clientName || scan.clientId || 'Not matched'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {scan.uploadSource || 'manual'}
@@ -160,26 +168,15 @@ export const ScanList: React.FC<ScanListProps> = ({
                       {scan.status === 'unmatched' && onAssignScan && (
                         <button
                           type="button"
-                          onClick={() => onAssignScan(scan)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onAssignScan(scan);
+                          }}
                           className="text-primary-500 hover:text-primary-700"
                           title="Assign to client"
                         >
                           <UserPlusIcon className="h-5 w-5" aria-hidden="true" />
-                        </button>
-                      )}
-                      
-                      {onDeleteScan && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (window.confirm('Are you sure you want to delete this scan? This action cannot be undone.')) {
-                              onDeleteScan(scan);
-                            }
-                          }}
-                          className="text-red-600 hover:text-red-900"
-                          title="Delete scan"
-                        >
-                          <TrashIcon className="h-5 w-5" aria-hidden="true" />
                         </button>
                       )}
                     </div>

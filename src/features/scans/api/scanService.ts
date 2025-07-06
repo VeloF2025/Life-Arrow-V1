@@ -1,47 +1,158 @@
-import { collection, addDoc, getDocs, getDoc, doc, updateDoc, query, where, orderBy, Timestamp, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc, addDoc, updateDoc, writeBatch, serverTimestamp, deleteField, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
-import type { Scan, ScanValue } from '@/types';
+import type { Scan, ScanValue, EpdResult, EpdScores, EbcResult, EbcScores, NormalizedScanDataItem } from '@/types';
+import { processEpdAnalysis, processEbcAnalysis } from '../utils/analysisProcessor';
 
 const SCANS_COLLECTION = 'scans';
 const SCAN_VALUES_COLLECTION = 'scan_values';
 const UNMATCHED_BASKET_COLLECTION = 'unmatched_basket';
+const EPD_RESULTS_COLLECTION = 'epdResults';
+const EBC_RESULTS_COLLECTION = 'ebcResults';
 
 export const scanService = {  
-  // Assign a scan to a client
-  async assignScanToClient(scanId: string, clientId: string): Promise<void> {
+  // Assign a scan to a client and trigger analysis
+  // Normalizes raw scan data from various possible formats into a consistent structure.
+  _normalizeScanData(rawDataJson: any): NormalizedScanDataItem[] {
+    if (!rawDataJson) return [];
     try {
-      const scanRef = doc(db, SCANS_COLLECTION, scanId);
-      
-      // Update the scan with the client ID and change status to matched
-      await updateDoc(scanRef, {
-        clientId: clientId,
-        status: 'matched',
-        updatedAt: Timestamp.now().toDate().toISOString()
-      });
-      
-      // Remove from unmatched basket if it exists there
-      const unmatchedBasketRef = collection(db, UNMATCHED_BASKET_COLLECTION);
-      const q = query(unmatchedBasketRef, where('scanId', '==', scanId));
-      const querySnapshot = await getDocs(q);
-      
-      const batch = writeBatch(db);
-      querySnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
-      
-      await batch.commit();
+      const data = typeof rawDataJson === 'string' ? JSON.parse(rawDataJson) : rawDataJson;
+      if (!data) return [];
+
+      // Case A: Data is already structured with pathData
+      if (data.pathData && Array.isArray(data.pathData)) {
+        return data.pathData.map((item: any) => ({ ...item, value: Number(item.value) || 0 }));
+      }
+
+      // Case B: Reconstruct from separate arrays
+      if (data.pathIds && data.values && Array.isArray(data.pathIds)) {
+        const descriptions = data.descriptions || [];
+        return data.pathIds.map((pathId: any, index: number) => ({
+          pathId: Number(pathId),
+          description: descriptions[index] || '',
+          value: Number(data.values[index]) || 0,
+        }));
+      }
+
+      // Case C: Data is an array of arrays (CSV-like)
+      if (Array.isArray(data) && data.length >= 3) {
+        const pathIds = data[0].slice(1).map((id: string) => Number(id));
+        const descriptions = data[1].slice(1);
+        const values = data[2].slice(1).map((val: string) => Number(val) || 0);
+        return pathIds.map((pathId: number, index: number) => ({
+          pathId,
+          description: descriptions[index] || '',
+          value: values[index],
+        }));
+      }
+    } catch (e) {
+      console.error('Error parsing rawDataJson for analysis:', e);
+    }
+    return [];
+  },
+
+  async assignScanToClient(scanId: string, clientId: string): Promise<void> {
+    const scanRef = doc(db, SCANS_COLLECTION, scanId);
+
+    try {
+        // First, update the scan document to reflect the new status.
+        await updateDoc(scanRef, {
+            clientId,
+            status: 'matched',
+            updatedAt: serverTimestamp(),
+        });
+        console.log(`Scan ${scanId} status updated to 'matched' for client ${clientId}.`);
+
+        // Fetch the processed scan values for analysis.
+        const scanValuesQuery = query(collection(db, SCAN_VALUES_COLLECTION), where('scanId', '==', scanId));
+        const scanValuesSnapshot = await getDocs(scanValuesQuery);
+
+        let normalizedData: NormalizedScanDataItem[] = [];
+
+        if (scanValuesSnapshot.empty) {
+            console.warn(`No scan values found in scan_values collection for scan ${scanId}. Attempting to extract from rawDataJson.`);
+            
+            // Try to get the scan document to extract rawDataJson
+            const scanDoc = await getDoc(scanRef);
+            if (!scanDoc.exists()) {
+                console.error(`Scan ${scanId} does not exist.`);
+                return;
+            }
+            
+            const scanData = scanDoc.data() as Scan;
+            if (scanData.rawDataJson) {
+                console.log(`Found rawDataJson for scan ${scanId}. Extracting scan values.`);
+                
+                // Extract and normalize data from rawDataJson
+                try {
+                    normalizedData = this._normalizeScanData(scanData.rawDataJson);
+                    
+                    if (normalizedData.length > 0) {
+                        console.log(`Successfully extracted ${normalizedData.length} scan values from rawDataJson.`);
+                        
+                        // Save the extracted values to scan_values collection
+                        const timestamp = Timestamp.now();
+                        const timestampStr = timestamp.toDate().toISOString();
+                        const scanValues = normalizedData.map(item => ({
+                            scanId,
+                            pathId: item.pathId,
+                            description: item.description || '',
+                            value: item.value,
+                            updatedAt: timestampStr
+                        }));
+                        
+                        await this.saveScanValues(scanValues);
+                        console.log(`Saved ${scanValues.length} scan values to database for scan ${scanId}.`);
+                    } else {
+                        console.error(`Failed to extract scan values from rawDataJson for scan ${scanId}.`);
+                        return;
+                    }
+                } catch (error) {
+                    console.error(`Error extracting scan values from rawDataJson for scan ${scanId}:`, error);
+                    return;
+                }
+            } else {
+                console.error(`No rawDataJson found for scan ${scanId}. Analysis will be skipped.`);
+                return;
+            }
+        } else {
+            normalizedData = scanValuesSnapshot.docs.map(doc => {
+                const data = doc.data();
+                return { pathId: data.pathId, description: data.description, value: data.value };
+            });
+        }
+
+        // --- Trigger EPD and EBC analysis ---
+        console.log(`Starting analysis for scan ${scanId}...`);
+        const epdScores = processEpdAnalysis(normalizedData);
+        await this.createEpdResult(scanId, clientId, epdScores);
+        console.log(`EPD results created for scan ${scanId}.`);
+
+        const ebcScores = processEbcAnalysis(epdScores);
+        await this.createEbcResult(scanId, clientId, ebcScores);
+        console.log(`EBC results created for scan ${scanId}.`);
+
+        // Remove from unmatched basket
+        const unmatchedQuery = query(collection(db, UNMATCHED_BASKET_COLLECTION), where('scanId', '==', scanId));
+        const unmatchedSnapshot = await getDocs(unmatchedQuery);
+        if (!unmatchedSnapshot.empty) {
+            const batch = writeBatch(db);
+            unmatchedSnapshot.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+            console.log(`Removed scan ${scanId} from unmatched basket.`);
+        }
+
+        console.log(`Successfully assigned and analyzed scan ${scanId} for client ${clientId}.`);
     } catch (error) {
-      console.error('Error assigning scan to client:', error);
-      throw error;
+        console.error(`[ASSIGN_SCAN_FAILURE] Error assigning scan ${scanId} to client ${clientId}:`, error);
+        // Attempt to revert the status to avoid inconsistent state
+        await updateDoc(scanRef, { status: 'unmatched', clientId: deleteField() });
+        throw new Error('Failed to assign scan. See console for details.');
     }
   },
 
   // Create a new scan with separate field values and auto-match to client if possible
   async createScan(scanData: Omit<Scan, 'id' | 'createdAt' | 'updatedAt'>, clientIdentifier?: string): Promise<string> {
     try {
-      const timestamp = Timestamp.now();
-      const timestampStr = timestamp.toDate().toISOString();
-      
       // If we have a client identifier but no clientId, try to find a matching client
       if (clientIdentifier && !scanData.clientId) {
         console.log(`Attempting to match scan to client with identifier: ${clientIdentifier}`);
@@ -64,22 +175,27 @@ export const scanService = {
       // Prepare the main scan document
       const scanWithTimestamps = {
         ...scanData,
-        createdAt: timestampStr,
-        updatedAt: timestampStr
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       };
       
       // Create the main scan document
       const docRef = await addDoc(collection(db, SCANS_COLLECTION), scanWithTimestamps);
       const scanId = docRef.id;
       
-      // If the scan is unmatched, add it to the unmatched basket
-      if (scanData.status === 'unmatched') {
+      // If the scan is matched, trigger the full assignment and analysis process
+      if (scanData.clientId) {
+        console.log(`Scan auto-assigned to client ${scanData.clientId} during creation.`);
+        // Trigger the full assignment and analysis process
+        await this.assignScanToClient(scanId, scanData.clientId);
+      } else {
+        // If no client is found, add to unmatched basket
         await this.addToUnmatchedBasket(scanId);
-        
-        // Log the client identifier for debugging if available
-        if (clientIdentifier) {
-          console.log(`Unmatched scan ${scanId} has client identifier: ${clientIdentifier}`);
-        }
+      }  
+      
+      // Log the client identifier for debugging if available
+      if (clientIdentifier) {
+        console.log(`Unmatched scan ${scanId} has client identifier: ${clientIdentifier}`);
       }
       
       // Extract path data from rawDataJson and create separate records
@@ -127,7 +243,8 @@ export const scanService = {
             pathId: item.pathId,
             description: item.description || '',
             value: item.value,
-            createdAt: timestampStr
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
           };
           
           const scanValueRef = doc(collection(db, SCAN_VALUES_COLLECTION));
@@ -376,47 +493,224 @@ export const scanService = {
     }
   },
 
-  // Delete a scan and all related data
+  // Delete a scan and all its related data
   async deleteScan(scanId: string): Promise<void> {
+    console.log(`[DELETE_SCAN_INIT] Initiating deletion for scan ${scanId}.`);
+    
     try {
-      // Use batched writes for better performance and atomicity
+      // First, verify the scan exists
+      const scanRef = doc(db, SCANS_COLLECTION, scanId);
+      console.log(`[DELETE_SCAN_DEBUG] Getting scan document from ${SCANS_COLLECTION}/${scanId}`);
+      const scanDoc = await getDoc(scanRef);
+      
+      if (!scanDoc.exists()) {
+        console.error(`[DELETE_SCAN_ERROR] Scan ${scanId} does not exist.`);
+        throw new Error(`Scan with ID ${scanId} not found.`);
+      }
+      
+      console.log(`[DELETE_SCAN_DEBUG] Scan exists:`, scanDoc.data());
+      
+      // Create a new batch for the deletion operations
       const batch = writeBatch(db);
       
-      // 1. Delete the scan document
-      const scanRef = doc(db, SCANS_COLLECTION, scanId);
+      // Add the scan document to the batch for deletion
       batch.delete(scanRef);
+      console.log(`[DELETE_SCAN_PROGRESS] Added scan document to deletion batch.`);
       
-      // 2. Delete all scan values associated with this scan
-      const scanValuesQuery = query(
-        collection(db, SCAN_VALUES_COLLECTION),
-        where('scanId', '==', scanId)
-      );
-      const scanValuesSnapshot = await getDocs(scanValuesQuery);
+      // Collections to delete related documents from
+      const collectionsToDeleteFrom = [
+        SCAN_VALUES_COLLECTION,
+        EPD_RESULTS_COLLECTION,
+        EBC_RESULTS_COLLECTION,
+        UNMATCHED_BASKET_COLLECTION,
+      ];
       
-      // Add each scan value deletion to the batch
-      scanValuesSnapshot.docs.forEach(doc => {
-        batch.delete(doc.ref);
-      });
+      // Process each collection separately
+      let totalDocumentsToDelete = 0;
+      for (const collectionName of collectionsToDeleteFrom) {
+        try {
+          console.log(`[DELETE_SCAN_PROGRESS] Querying ${collectionName} for documents with scanId: ${scanId}`);
+          const q = query(collection(db, collectionName), where('scanId', '==', scanId));
+          
+          try {
+            const snapshot = await getDocs(q);
+            
+            if (snapshot.empty) {
+              console.log(`[DELETE_SCAN_INFO] No documents found in ${collectionName} for scanId: ${scanId}`);
+              continue;
+            }
+            
+            console.log(`[DELETE_SCAN_PROGRESS] Found ${snapshot.docs.length} documents in ${collectionName} to delete.`);
+            totalDocumentsToDelete += snapshot.docs.length;
+            
+            snapshot.docs.forEach(docSnapshot => {
+              console.log(`[DELETE_SCAN_DEBUG] Adding document ${docSnapshot.id} from ${collectionName} to deletion batch`);
+              batch.delete(docSnapshot.ref);
+            });
+          } catch (queryError) {
+            console.error(`[DELETE_SCAN_ERROR] Error querying ${collectionName}:`, queryError);
+            throw queryError; // Re-throw to be caught by the outer try-catch
+          }
+        } catch (error) {
+          console.warn(`[DELETE_SCAN_WARN] Could not query ${collectionName} for scanId ${scanId}. This might be due to a missing index, but deletion will proceed.`, error);
+        }
+      }
       
-      // 3. Delete any unmatched basket entries related to this scan
-      const unmatchedQuery = query(
-        collection(db, UNMATCHED_BASKET_COLLECTION),
-        where('scanId', '==', scanId)
-      );
-      const unmatchedSnapshot = await getDocs(unmatchedQuery);
-      
-      // Add each unmatched basket entry deletion to the batch
-      unmatchedSnapshot.docs.forEach(doc => {
-        batch.delete(doc.ref);
-      });
+      console.log(`[DELETE_SCAN_DEBUG] Committing batch with ${totalDocumentsToDelete + 1} documents (including main scan)`);
       
       // Commit the batch
-      await batch.commit();
-      
-      console.log(`Successfully deleted scan ${scanId} and all related data`);
+      try {
+        await batch.commit();
+        console.log(`[DELETE_SCAN_SUCCESS] Successfully deleted scan ${scanId} and all related data.`);
+      } catch (commitError) {
+        console.error(`[DELETE_SCAN_ERROR] Error committing batch:`, commitError);
+        throw commitError; // Re-throw to be caught by the outer try-catch
+      }
     } catch (error) {
-      console.error('Error deleting scan:', error);
-      throw error;
+      console.error(`[DELETE_SCAN_FAILURE] Failed to delete scan ${scanId}.`, error);
+      throw new Error(`Failed to delete scan: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }
+  },
+
+  // Unmatch a scan from a client
+  async unmatchScan(scanId: string): Promise<void> {
+    console.log(`[UNMATCH_SCAN_INIT] Initiating unmatch for scan ${scanId}.`);
+    
+    try {
+      // First, verify the scan exists
+      const scanRef = doc(db, SCANS_COLLECTION, scanId);
+      console.log(`[UNMATCH_SCAN_DEBUG] Getting scan document from ${SCANS_COLLECTION}/${scanId}`);
+      const scanDoc = await getDoc(scanRef);
+      
+      if (!scanDoc.exists()) {
+        console.error(`[UNMATCH_SCAN_ERROR] Scan ${scanId} does not exist.`);
+        throw new Error(`Scan with ID ${scanId} not found.`);
+      }
+      
+      console.log(`[UNMATCH_SCAN_DEBUG] Scan exists:`, scanDoc.data());
+      
+      // Create a new batch for the operations
+      const batch = writeBatch(db);
+      
+      // Update the scan document to remove client association
+      console.log(`[UNMATCH_SCAN_DEBUG] Updating scan document to remove client association`);
+      batch.update(scanRef, {
+          clientId: deleteField(),
+          clientName: deleteField(),
+          status: 'unmatched',
+          updatedAt: serverTimestamp(),
+      });
+
+      // Collections to delete related documents from
+      const collectionsToDeleteFrom = [EPD_RESULTS_COLLECTION, EBC_RESULTS_COLLECTION];
+      
+      // Process each collection separately
+      let totalDocumentsToDelete = 0;
+      for (const collectionName of collectionsToDeleteFrom) {
+        try {
+          console.log(`[UNMATCH_SCAN_PROGRESS] Querying ${collectionName} for documents with scanId: ${scanId}`);
+          const q = query(collection(db, collectionName), where('scanId', '==', scanId));
+          
+          try {
+            const snapshot = await getDocs(q);
+            
+            if (snapshot.empty) {
+              console.log(`[UNMATCH_SCAN_INFO] No documents found in ${collectionName} for scanId: ${scanId}`);
+              continue;
+            }
+            
+            console.log(`[UNMATCH_SCAN_PROGRESS] Found ${snapshot.docs.length} documents in ${collectionName} to delete.`);
+            totalDocumentsToDelete += snapshot.docs.length;
+            
+            snapshot.docs.forEach(docSnapshot => {
+              console.log(`[UNMATCH_SCAN_DEBUG] Adding document ${docSnapshot.id} from ${collectionName} to deletion batch`);
+              batch.delete(docSnapshot.ref);
+            });
+          } catch (queryError) {
+            console.error(`[UNMATCH_SCAN_ERROR] Error querying ${collectionName}:`, queryError);
+            throw queryError; // Re-throw to be caught by the outer try-catch
+          }
+        } catch (error) {
+          console.warn(`[UNMATCH_SCAN_WARN] Could not query ${collectionName} for scanId ${scanId}. This might be due to a missing index, but unmatch will proceed.`, error);
+        }
+      }
+      
+      console.log(`[UNMATCH_SCAN_DEBUG] Committing batch with ${totalDocumentsToDelete} documents to delete and 1 document to update`);
+      
+      // Commit the batch
+      try {
+        await batch.commit();
+        console.log(`[UNMATCH_SCAN_SUCCESS] Successfully unmatched scan ${scanId} and deleted related analysis results.`);
+      } catch (commitError) {
+        console.error(`[UNMATCH_SCAN_ERROR] Error committing batch:`, commitError);
+        throw commitError; // Re-throw to be caught by the outer try-catch
+      }
+    } catch (error) {
+      console.error(`[UNMATCH_SCAN_FAILURE] Failed to unmatch scan ${scanId}.`, error);
+      throw new Error(`Failed to unmatch scan: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  },
+
+  // Create a new EPD analysis result
+  async createEpdResult(scanId: string, clientId: string, scores: EpdScores): Promise<string> {
+    const epdResult: Omit<EpdResult, 'id'> = {
+      scanId,
+      clientId,
+      scores,
+      analysisVersion: '1.0',
+      createdAt: serverTimestamp(),
+    };
+    const docRef = await addDoc(collection(db, EPD_RESULTS_COLLECTION), epdResult);
+    return docRef.id;
+  },
+
+  // Create a new EBC analysis result
+  async createEbcResult(scanId: string, clientId: string, scores: EbcScores): Promise<string> {
+    const ebcResult: Omit<EbcResult, 'id'> = {
+      scanId,
+      clientId,
+      scores,
+      analysisVersion: '1.0',
+      createdAt: serverTimestamp(),
+    };
+    const docRef = await addDoc(collection(db, EBC_RESULTS_COLLECTION), ebcResult);
+    return docRef.id;
+  },
+
+  // Get all EPD results
+  async getEpdResults(): Promise<EpdResult[]> {
+    try {
+      const q = query(collection(db, EPD_RESULTS_COLLECTION), orderBy('createdAt', 'desc'));
+      const querySnapshot = await getDocs(q);
+      return querySnapshot.docs.map(
+        (doc) =>
+          ({
+            id: doc.id,
+            ...doc.data(),
+          } as EpdResult)
+      );
+    } catch (error) {
+      console.error('Error getting EPD results:', error);
+      throw new Error('Failed to fetch EPD results.');
+    }
+  },
+
+  // Get a single EBC result for a given scan ID
+  async getEbcResultByScanId(scanId: string): Promise<EbcResult | null> {
+    if (!scanId) return null;
+    try {
+      const q = query(collection(db, EBC_RESULTS_COLLECTION), where('scanId', '==', scanId));
+      const querySnapshot = await getDocs(q);
+      if (querySnapshot.empty) {
+        console.log(`No EBC result found for scanId: ${scanId}`);
+        return null;
+      }
+      // Assuming one EBC result per scan
+      const doc = querySnapshot.docs[0];
+      return { id: doc.id, ...doc.data() } as EbcResult;
+    } catch (error) {
+      console.error(`Error getting EBC result for scan ${scanId}:`, error);
+      throw new Error('Failed to fetch EBC result.');
+    }
+  },
 };

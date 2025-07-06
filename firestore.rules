@@ -1,8 +1,56 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if true;
+
+    // Helper functions to check user authentication and roles
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return request.auth.token.role == 'super-admin';
+    }
+
+    function isAdmin() {
+      return request.auth.token.role == 'admin' || isSuperAdmin();
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Rules for the 'users' collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    // Rules for the 'clients' collection
+    match /clients/{clientId} {
+      allow read, write, create, delete: if isAdmin();
+    }
+
+    // Rules for scans and all related sub-collections
+    match /scans/{scanId} {
+      allow read, create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /scan_values/{valueId} {
+      allow read, write, create, delete: if isAdmin();
+    }
+    
+    match /unmatched_basket/{basketId} {
+      allow read, write, create, delete: if isAdmin();
+    }
+
+    match /epdResults/{resultId} {
+      allow read, write, create, delete: if isAdmin();
+    }
+    
+    match /ebcResults/{resultId} {
+      allow read, write, create, delete: if isAdmin();
     }
   }
 }

@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Fragment } from 'react';
 import { format } from 'date-fns';
 import { scanService } from '../api/scanService';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { Timestamp } from 'firebase/firestore';
-import { UserPlusIcon } from '@heroicons/react/24/outline';
+import { UserPlusIcon, TrashIcon, XCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { ClientSelectionModal } from './ClientSelectionModal';
+import toast from 'react-hot-toast';
 import type { Scan } from '@/types';
+import { Dialog, Transition } from '@headlessui/react';
 
 interface ScanDetailProps {
   scan: Scan;
@@ -18,13 +20,11 @@ export const ScanDetail: React.FC<ScanDetailProps> = ({ scan, onClose, onScanUpd
   const [extractedDate, setExtractedDate] = useState<string | null>(null);
   const [isClientSelectionModalOpen, setIsClientSelectionModalOpen] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isUnmatching, setIsUnmatching] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showUnmatchConfirm, setShowUnmatchConfirm] = useState(false);
   const queryClient = useQueryClient();
-
-  const { data: scanData } = useQuery({
-    queryKey: [`scan-${scan.id}`],
-    queryFn: () => scanService.getScanData(scan.id),
-    enabled: !!scan.id,
-  });
 
   useEffect(() => {
     const extractInformationFromFile = (filename: string): { identifier: string | null; date: string | null } => {
@@ -215,6 +215,8 @@ export const ScanDetail: React.FC<ScanDetailProps> = ({ scan, onClose, onScanUpd
     setIsAssigning(true);
     try {
       await scanService.assignScanToClient(scan.id, clientId);
+      toast.success('Scan successfully assigned!');
+      queryClient.invalidateQueries({ queryKey: ['scans'] });
       queryClient.invalidateQueries({ queryKey: [`scan-${scan.id}`] });
       if (onScanUpdate) {
         onScanUpdate({ ...scan, clientId, status: 'matched' });
@@ -222,18 +224,71 @@ export const ScanDetail: React.FC<ScanDetailProps> = ({ scan, onClose, onScanUpd
       setIsClientSelectionModalOpen(false);
     } catch (error) {
       console.error('Error assigning scan to client:', error);
+      toast.error('Failed to assign scan. See console for details.');
     } finally {
       setIsAssigning(false);
     }
   };
+
+  const handleUnmatchScan = async () => {
+    if (!scan?.id) return;
+    setShowUnmatchConfirm(false);
+    setIsUnmatching(true);
+    try {
+      // Ensure we're accessing the method correctly
+      if (typeof scanService.unmatchScan === 'function') {
+        await scanService.unmatchScan(scan.id);
+        toast.success('Scan successfully unmatched.');
+        queryClient.invalidateQueries({ queryKey: ['scans'] });
+        queryClient.invalidateQueries({ queryKey: [`scan-${scan.id}`] });
+        if (onScanUpdate) {
+          const updatedScan = { ...scan, status: 'unmatched' } as any;
+          delete updatedScan.clientId;
+          delete updatedScan.clientName;
+          onScanUpdate(updatedScan);
+        }
+      } else {
+        throw new Error('unmatchScan method not found in scanService');
+      }
+    } catch (error) {
+      console.error('Error unmatching scan:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to unmatch scan.');
+    } finally {
+      setIsUnmatching(false);
+    }
+  };
+  
+  const openUnmatchConfirm = () => {
+    setShowUnmatchConfirm(true);
+  };
+
+  const handleDeleteScan = async () => {
+    if (!scan?.id) return;
+    setShowDeleteConfirm(false);
+    setIsDeleting(true);
+    try {
+      // Ensure we're accessing the method correctly
+      if (typeof scanService.deleteScan === 'function') {
+        await scanService.deleteScan(scan.id);
+        toast.success('Scan successfully deleted.');
+        queryClient.invalidateQueries({ queryKey: ['scans'] });
+        if (onClose) onClose();
+      } else {
+        throw new Error('deleteScan method not found in scanService');
+      }
+    } catch (error) {
+      console.error('Error deleting scan:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to delete scan.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+  
+  const openDeleteConfirm = () => {
+    setShowDeleteConfirm(true);
+  };
   
   const processedScanData = useMemo(() => {
-    // Priority 1: Data from useQuery (e.g., from a separate collection)
-    if (scanData?.rawValues && Array.isArray(scanData.rawValues) && scanData.rawValues.length > 0) {
-      return scanData.rawValues;
-    }
-
-    // Priority 2: Data from the scan object's rawDataJson
     if (scan.rawDataJson) {
       try {
         const data = typeof scan.rawDataJson === 'string' 
@@ -278,23 +333,44 @@ export const ScanDetail: React.FC<ScanDetailProps> = ({ scan, onClose, onScanUpd
 
     // Return empty array if no data is found or processed
     return [];
-  }, [scanData, scan.rawDataJson]);
+  }, [scan.rawDataJson]);
 
   return (
-    <div className="bg-white shadow overflow-hidden sm:rounded-lg">
-      <div className="px-4 py-5 sm:px-6 flex justify-between items-center">
-        <div>
-          <h3 className="text-lg leading-6 font-medium text-gray-900">Scan Details</h3>
-          <p className="mt-1 max-w-2xl text-sm text-gray-500">Details for scan ID: {scan.id}</p>
+    <>
+      <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+        <div className="px-4 py-5 sm:px-6 flex justify-between items-center">
+          <div>
+            <h3 className="text-lg leading-6 font-medium text-gray-900">Scan Details</h3>
+            <p className="mt-1 max-w-2xl text-sm text-gray-500">Details for scan ID: {scan.id}</p>
+          </div>
+          <div className="flex items-center space-x-2 flex-shrink-0">
+              {scan.status === 'matched' && (
+                <button
+                  onClick={openUnmatchConfirm}
+                  disabled={isUnmatching || isDeleting}
+                  className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md shadow-sm text-white bg-yellow-600 hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 disabled:opacity-50"
+                >
+                  <XCircleIcon className="-ml-0.5 mr-2 h-4 w-4" aria-hidden="true" />
+                  {isUnmatching ? 'Unmatching...' : 'Unmatch'}
+                </button>
+              )}
+              <button
+                onClick={openDeleteConfirm}
+                disabled={isDeleting || isUnmatching}
+                className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50"
+              >
+                <TrashIcon className="-ml-0.5 mr-2 h-4 w-4" aria-hidden="true" />
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            {onClose && (
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600 ml-2">
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
-        {onClose && (
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        )}
-      </div>
       <div className="border-t border-gray-200 px-4 py-5 sm:p-0">
         <dl className="sm:divide-y sm:divide-gray-200">
           {/* Client Name / Identifier */}
@@ -402,6 +478,141 @@ export const ScanDetail: React.FC<ScanDetailProps> = ({ scan, onClose, onScanUpd
         onClientSelected={handleAssignToClient}
         isLoading={isAssigning}
       />
-    </div>
+      </div>
+      
+      {/* Delete Confirmation Modal */}
+      <Transition.Root show={showDeleteConfirm} as={Fragment}>
+        <Dialog as="div" className="fixed z-10 inset-0 overflow-y-auto" onClose={setShowDeleteConfirm}>
+        <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
+          </Transition.Child>
+
+          {/* This element is to trick the browser into centering the modal contents. */}
+          <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">
+            &#8203;
+          </span>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+            enterTo="opacity-100 translate-y-0 sm:scale-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100 translate-y-0 sm:scale-100"
+            leaveTo="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+          >
+            <div className="inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
+              <div className="sm:flex sm:items-start">
+                <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <ExclamationTriangleIcon className="h-6 w-6 text-red-600" aria-hidden="true" />
+                </div>
+                <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                  <Dialog.Title as="h3" className="text-lg leading-6 font-medium text-gray-900">
+                    Delete Scan
+                  </Dialog.Title>
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-500">
+                      Are you sure you want to permanently delete this scan and all associated data? This action cannot be undone.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
+                <button
+                  type="button"
+                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm"
+                  onClick={handleDeleteScan}
+                >
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:w-auto sm:text-sm"
+                  onClick={() => setShowDeleteConfirm(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </Transition.Child>
+        </div>
+      </Dialog>
+      </Transition.Root>
+      
+      {/* Unmatch Confirmation Modal */}
+      <Transition.Root show={showUnmatchConfirm} as={Fragment}>
+        <Dialog as="div" className="fixed z-10 inset-0 overflow-y-auto" onClose={setShowUnmatchConfirm}>
+        <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
+          </Transition.Child>
+
+          {/* This element is to trick the browser into centering the modal contents. */}
+          <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">
+            &#8203;
+          </span>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+            enterTo="opacity-100 translate-y-0 sm:scale-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100 translate-y-0 sm:scale-100"
+            leaveTo="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+          >
+            <div className="inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
+              <div className="sm:flex sm:items-start">
+                <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <ExclamationTriangleIcon className="h-6 w-6 text-yellow-600" aria-hidden="true" />
+                </div>
+                <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                  <Dialog.Title as="h3" className="text-lg leading-6 font-medium text-gray-900">
+                    Unmatch Scan
+                  </Dialog.Title>
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-500">
+                      Are you sure you want to unmatch this scan? This will delete any existing analysis results.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
+                <button
+                  type="button"
+                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-yellow-600 text-base font-medium text-white hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 sm:ml-3 sm:w-auto sm:text-sm"
+                  onClick={handleUnmatchScan}
+                >
+                  Unmatch
+                </button>
+                <button
+                  type="button"
+                  className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:w-auto sm:text-sm"
+                  onClick={() => setShowUnmatchConfirm(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </Transition.Child>
+        </div>
+      </Dialog>
+      </Transition.Root>
+    </>
   );
 };

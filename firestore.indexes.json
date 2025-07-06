@@ -1,26 +1,33 @@
 {
-  // Example:
-  //
-  // "indexes": [
-  //   {
-  //     "collectionGroup": "widgets",
-  //     "queryScope": "COLLECTION",
-  //     "fields": [
-  //       { "fieldPath": "foo", "arrayConfig": "CONTAINS" },
-  //       { "fieldPath": "bar", "mode": "DESCENDING" }
-  //     ]
-  //   },
-  //
-  //  "fieldOverrides": [
-  //    {
-  //      "collectionGroup": "widgets",
-  //      "fieldPath": "baz",
-  //      "indexes": [
-  //        { "order": "ASCENDING", "queryScope": "COLLECTION" }
-  //      ]
-  //    },
-  //   ]
-  // ]
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "scan_values",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "scanId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "epdResults",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "scanId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ebcResults",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "scanId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "unmatched_basket",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "scanId", "order": "ASCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": []
 }

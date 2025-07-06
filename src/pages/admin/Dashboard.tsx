@@ -69,22 +69,16 @@ const AccordionSection: React.FC<{ title: string; isOpen: boolean; onClick: () =
 
 export function Dashboard() {
   const { profile, loading } = useUserProfile();
-  const { stats, loading: statsLoading, error: statsError } = useDashboardData(profile);
   const location = useLocation();
   const navigate = useNavigate();
-  
+
   // Determine initial section from URL or location state
   const initialSection = useMemo(() => {
-    // Check if we have a section in the location state
     if (location.state && location.state.activeSection) {
       return location.state.activeSection as AdminSection;
     }
-    
-    // Otherwise, try to get the section from the URL path
     const pathSegments = location.pathname.split('/');
     const lastSegment = pathSegments[pathSegments.length - 1];
-    
-    // Check if the last segment is a valid admin section
     if (lastSegment && lastSegment !== 'admin') {
       const validSections = ['overview', 'clients', 'appointments', 'services', 'centres', 
                            'staff', 'scans', 'videos', 'wellness-plans', 'reports', 
@@ -93,21 +87,19 @@ export function Dashboard() {
         return lastSegment as AdminSection;
       }
     }
-    
-    // Special case for /admin/scans URL
     if (location.pathname === '/admin/scans') {
       return 'scans' as AdminSection;
     }
-    
-    // Default to overview
-    return 'overview' as AdminSection;
+    return 'overview';
   }, [location]);
-  
+
+  const [activeSection, setActiveSection] = useState<AdminSection>(initialSection);
+  const { stats, loading: statsLoading, error: statsError } = useDashboardData(profile, { enabled: activeSection === 'overview' });
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showUserRoles, setShowUserRoles] = useState(false);
   const [showCreateAdmin, setShowCreateAdmin] = useState(false);
   const [showAdminSetup, setShowAdminSetup] = useState(false);
-  const [activeSection, setActiveSection] = useState<AdminSection>(initialSection);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const [siteHealthTab, setSiteHealthTab] = useState<'audit' | 'profiles'>('audit');
   const [openScanSection, setOpenScanSection] = useState<'upload' | 'analysis' | null>('upload');
 

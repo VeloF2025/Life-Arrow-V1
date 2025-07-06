@@ -5,9 +5,10 @@ import { ScanFileUpload } from './ScanFileUpload';
 import { ScanList } from './ScanList';
 import { ScanDetail } from './ScanDetail';
 import { scanService } from '../api/scanService';
-import type { Scan } from '../types';
+import type { Scan } from '@/types';
 import { clientService } from '../../clients/api/clientService';
 import { MagnifyingGlassIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import toast from 'react-hot-toast';
 
 export const ScanManagement: React.FC = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -64,17 +65,47 @@ export const ScanManagement: React.FC = () => {
 
   // Delete scan mutation
   const deleteScanMutation = useMutation({
-    mutationFn: (scanId: string) => scanService.deleteScan(scanId),
-    onSuccess: () => {
+    mutationFn: (scanId: string) => {
+      console.log('[DELETE_MUTATION] Starting delete mutation for scanId:', scanId);
+      return scanService.deleteScan(scanId);
+    },
+    onSuccess: (_, scanId) => {
+      console.log('[DELETE_MUTATION] Delete successful for scanId:', scanId);
       queryClient.invalidateQueries({ queryKey: ['scans'] });
+      // Use toast for better visibility
+      toast.success('Scan deleted successfully');
       setUploadSuccess('Scan deleted successfully');
       setTimeout(() => setUploadSuccess(null), 3000);
     },
-    onError: (error) => {
-      console.error('Error deleting scan:', error);
+    onError: (error, scanId) => {
+      console.error(`[DELETE_MUTATION] Error deleting scan ${scanId}:`, error);
+      // Use toast for better visibility
+      toast.error(`Failed to delete scan: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setUploadError('Failed to delete scan');
       setTimeout(() => setUploadError(null), 3000);
     }
+  });
+
+  const unmatchScanMutation = useMutation({
+    mutationFn: (scanId: string) => {
+      console.log('[UNMATCH_MUTATION] Starting unmatch mutation for scanId:', scanId);
+      return scanService.unmatchScan(scanId);
+    },
+    onSuccess: (_, scanId) => {
+      console.log('[UNMATCH_MUTATION] Unmatch successful for scanId:', scanId);
+      queryClient.invalidateQueries({ queryKey: ['scans'] });
+      // Use toast for better visibility
+      toast.success('Scan unmatched successfully');
+      setUploadSuccess('Scan unmatched successfully');
+      setTimeout(() => setUploadSuccess(null), 3000);
+    },
+    onError: (error, scanId) => {
+      console.error(`[UNMATCH_MUTATION] Error unmatching scan ${scanId}:`, error);
+      // Use toast for better visibility
+      toast.error(`Failed to unmatch scan: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setUploadError('Failed to unmatch scan');
+      setTimeout(() => setUploadError(null), 3000);
+    },
   });
 
   const handleViewScan = (scan: Scan) => {
@@ -87,9 +118,26 @@ export const ScanManagement: React.FC = () => {
     setIsAssignModalOpen(true);
   };
 
+  // These handlers are used by the ScanDetail component
+  // Keep them here for consistency and potential future use in the list view
   const handleDeleteScan = (scan: Scan) => {
+    console.log('[SCAN_MANAGEMENT] handleDeleteScan called with scan:', scan);
     if (scan.id) {
+      console.log('[SCAN_MANAGEMENT] Calling deleteScanMutation with scanId:', scan.id);
       deleteScanMutation.mutate(scan.id);
+    } else {
+      console.error('[SCAN_MANAGEMENT] Cannot delete scan: No scan ID provided');
+    }
+  };
+
+  // This handler is used by the ScanDetail component
+  const handleUnmatchScan = (scan: Scan) => {
+    console.log('[SCAN_MANAGEMENT] handleUnmatchScan called with scan:', scan);
+    if (scan.id) {
+      console.log('[SCAN_MANAGEMENT] Calling unmatchScanMutation with scanId:', scan.id);
+      unmatchScanMutation.mutate(scan.id);
+    } else {
+      console.error('[SCAN_MANAGEMENT] Cannot unmatch scan: No scan ID provided');
     }
   };
 
@@ -115,13 +163,14 @@ export const ScanManagement: React.FC = () => {
 
   const filteredScans = scans.filter(scan => {
     if (!searchTerm) return true;
-    
     const searchLower = searchTerm.toLowerCase();
-    return (
-      scan.fileIdentifier.toLowerCase().includes(searchLower) ||
-      scan.originalFilename.toLowerCase().includes(searchLower) ||
-      (scan.userId && scan.userId.toLowerCase().includes(searchLower))
-    );
+
+    const fileIdentifierMatch = scan.fileIdentifier?.toLowerCase().includes(searchLower) ?? false;
+    const originalFilenameMatch = scan.originalFilename?.toLowerCase().includes(searchLower) ?? false;
+    const clientIdMatch = scan.clientId?.toLowerCase().includes(searchLower) ?? false;
+    const clientNameMatch = scan.clientName?.toLowerCase().includes(searchLower) ?? false;
+
+    return fileIdentifierMatch || originalFilenameMatch || clientIdMatch || clientNameMatch;
   });
 
   return (
@@ -251,11 +300,10 @@ export const ScanManagement: React.FC = () => {
           </p>
         </div>
       ) : (
-        <ScanList
-          scans={filteredScans}
-          onViewScan={handleViewScan}
+        <ScanList 
+          scans={filteredScans} 
+          onViewScan={handleViewScan} 
           onAssignScan={handleAssignScan}
-          onDeleteScan={handleDeleteScan}
         />
       )}
 

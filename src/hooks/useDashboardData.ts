@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { 
   collection, 
   getDocs, 
-  query as firestoreQuery,
   CollectionReference
 } from 'firebase/firestore';
 import type { DocumentData } from 'firebase/firestore';
@@ -21,7 +20,7 @@ interface DashboardStats {
   completionGrowth: number;
 }
 
-export const useDashboardData = (profile: UserProfile | null) => {
+export const useDashboardData = (profile: UserProfile | null, options: { enabled?: boolean } = { enabled: true }) => {
   const [stats, setStats] = useState<DashboardStats>({
     activeClients: 0,
     todayAppointments: 0,
@@ -37,7 +36,10 @@ export const useDashboardData = (profile: UserProfile | null) => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!profile) return;
+    if (!profile || options.enabled === false) {
+      setLoading(false);
+      return;
+    }
 
     const fetchDashboardData = async () => {
       try {
@@ -166,7 +168,7 @@ export const useDashboardData = (profile: UserProfile | null) => {
     };
 
     fetchDashboardData();
-  }, [profile]);
+  }, [profile, options.enabled]);
 
   return { stats, loading, error };
 }; 

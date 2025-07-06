@@ -1,3 +1,5 @@
+import type { Timestamp, FieldValue } from 'firebase/firestore';
+
 // User and Authentication Types
 export type UserRole = 'super-admin' | 'admin' | 'client' | 'staff';
 
@@ -169,6 +171,54 @@ export interface Scan {
   rawDataJson: any;
   createdAt: any; // Can be string, Date, or Firestore Timestamp
   updatedAt: any; // Can be string, Date, or Firestore Timestamp
+}
+
+/**
+ * Represents the result of an EPD (Emotional Polarity Distribution) analysis.
+ */
+export interface EpdResult {
+  id: string;
+  scanId: string;
+  clientId: string;
+  createdAt: Timestamp | FieldValue;
+  analysisVersion: string;
+  scores: EpdScores;
+  reportData?: any; // For future use, e.g., detailed PDF report data
+}
+
+export interface EpdScores {
+  red: number;
+  orange: number;
+  yellow: number;
+  green: number;
+  cyan: number;
+  blue: number;
+  violet: number;
+}
+
+export interface NormalizedScanDataItem {
+  pathId: number;
+  description: string;
+  value: number;
+}
+
+export interface EbcScores {
+  red: -1 | 0 | 1;
+  orange: -1 | 0 | 1;
+  yellow: -1 | 0 | 1;
+  green: -1 | 0 | 1;
+  cyan: -1 | 0 | 1;
+  blue: -1 | 0 | 1;
+  violet: -1 | 0 | 1;
+}
+
+export interface EbcResult {
+  id: string;
+  scanId: string;
+  clientId: string;
+  createdAt: Timestamp | FieldValue;
+  analysisVersion: string;
+  scores: EbcScores;
 }
 
 export interface ScanValue {
