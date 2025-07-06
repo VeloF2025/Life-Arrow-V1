@@ -10,13 +10,15 @@ export interface ProgressIndicatorProps {
   currentStep: number;
   completedSteps?: number[];
   className?: string;
+  onStepClick?: (stepId: number) => void;
 }
 
 export function ProgressIndicator({
   steps,
   currentStep,
   completedSteps = [],
-  className = ''
+  className = '',
+  onStepClick
 }: ProgressIndicatorProps) {
   const getStepStatus = (stepId: number) => {
     if (completedSteps.includes(stepId)) return 'completed';
@@ -50,7 +52,19 @@ export function ProgressIndicator({
           
           return (
             <li key={step.id} className={`${isLast ? '' : 'flex-1'} flex items-center`}>
-              <div className="flex flex-col items-center group">
+              <div 
+                className={`flex flex-col items-center group ${onStepClick ? 'cursor-pointer' : ''}`}
+                onClick={onStepClick ? () => onStepClick(step.id) : undefined}
+                role={onStepClick ? "button" : undefined}
+                tabIndex={onStepClick ? 0 : undefined}
+                aria-label={onStepClick ? `Go to ${step.title}` : undefined}
+                onKeyDown={onStepClick ? (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onStepClick(step.id);
+                  }
+                } : undefined}
+              >
                 {/* Step Circle */}
                 <div
                   className={`

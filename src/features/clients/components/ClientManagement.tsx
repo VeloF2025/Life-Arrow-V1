@@ -11,6 +11,7 @@ import { useClients } from '../hooks/useClients';
 
 import type { Client } from '@/types';
 import { ClientCard } from './ClientCard';
+import { ClientForm } from './ClientForm';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -40,11 +41,17 @@ export function ClientManagement() {
     confirmDelete,
     showDeleteModal,
     setShowDeleteModal,
+    showCreateModal,
+    setShowCreateModal,
+    showEditModal,
+    setShowEditModal,
     selectedClient,
     canViewClients,
     canCreateClients,
     canEditClients,
     canDeleteClients,
+    createClient,
+    updateClient,
     refetch
   } = useClients();
 
@@ -253,6 +260,39 @@ export function ClientManagement() {
             }}
           />
         </Modal>
+      )}
+      
+      {/* Client Create Modal */}
+      {showCreateModal && (
+        <ClientForm
+          isOpen={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onSubmit={(clientData) => {
+            const { photoFile, ...restData } = clientData as any;
+            createClient.mutate({ clientData: restData, photoFile });
+          }}
+          isSubmitting={createClient.isPending}
+          title="Create New Client"
+        />
+      )}
+
+      {/* Client Edit Modal */}
+      {showEditModal && selectedClient && (
+        <ClientForm
+          isOpen={showEditModal}
+          onClose={() => setShowEditModal(false)}
+          onSubmit={(clientData) => {
+            const { photoFile, ...restData } = clientData as any;
+            updateClient.mutate({ 
+              id: selectedClient.id, 
+              clientData: restData, 
+              photoFile
+            });
+          }}
+          client={selectedClient}
+          isSubmitting={updateClient.isPending}
+          title={`Edit Client: ${selectedClient.firstName} ${selectedClient.lastName}`}
+        />
       )}
       
       {/* Client Import Modal */}

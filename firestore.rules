@@ -1,74 +1,8 @@
-rules_version='2'
-
+rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper functions
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-    
-    function hasRole(role) {
-      return isAuthenticated() && request.auth.token.role == role;
-    }
-    
-    function isAdmin() {
-      return hasRole('admin') || hasRole('super-admin');
-    }
-    
-    function hasPermission(permission) {
-      return isAuthenticated() && 
-        (request.auth.token.permissions is list && 
-         request.auth.token.permissions.hasAny([permission]));
-    }
-    
-    // Default rule - deny all
     match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2025, 8, 2);
-    }
-    
-    // Scan Management Rules
-    match /scans/{scanId} {
-      // Only staff/admin can read all scans
-      allow read: if hasPermission('scans.view');
-      // Only staff/admin can create scans
-      allow create: if hasPermission('scans.upload');
-      // Only staff/admin can update scans
-      allow update: if hasPermission('scans.assign');
-      // Only staff/admin can delete scans
-      allow delete: if hasPermission('scans.delete');
-    }
-    
-    match /scanValues/{valueId} {
-      // Only staff/admin can read scan values
-      allow read: if hasPermission('scans.view');
-      // Only staff/admin can create scan values
-      allow create: if hasPermission('scans.upload');
-      // Only staff/admin can update scan values
-      allow update: if hasPermission('scans.assign');
-      // Only staff/admin can delete scan values
-      allow delete: if hasPermission('scans.delete');
-    }
-    
-    match /unmatched_basket/{scanId} {
-      // Only staff/admin can read unmatched scans
-      allow read: if hasPermission('scans.view');
-      // Only staff/admin can create unmatched scans
-      allow create: if hasPermission('scans.upload');
-      // Only staff/admin can update unmatched scans
-      allow update: if hasPermission('scans.assign');
-      // Only staff/admin can delete unmatched scans
-      allow delete: if hasPermission('scans.delete');
-    }
-    
-    match /pathDefinitions/{pathId} {
-      // Only staff/admin can read path definitions
-      allow read: if hasPermission('scans.view');
-      // Only admin can create path definitions
-      allow create: if isAdmin();
-      // Only admin can update path definitions
-      allow update: if isAdmin();
-      // Only admin can delete path definitions
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
   }
 }

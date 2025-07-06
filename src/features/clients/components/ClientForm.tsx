@@ -3,8 +3,7 @@ import {
   ArrowPathIcon,
   CheckIcon,
   XMarkIcon,
-  PhotoIcon,
-  TrashIcon
+  PhotoIcon
 } from '@heroicons/react/24/outline';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -13,11 +12,13 @@ import { TextArea } from '@/components/ui/TextArea';
 import { Modal } from '@/components/ui/Modal';
 import { clientService } from '../api/clientService';
 import type { Client, Centre } from '@/types';
+import { initializeTreatmentCentres } from '@/utils/initializeCentres';
+import { TREATMENT_CENTRES } from '@/lib/constants';
 
 interface ClientFormProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (clientData: Partial<Client>) => void;
+  onSubmit: (clientData: Partial<Client>, photoFile?: File | null) => void;
   client?: Client;
   isSubmitting: boolean;
   title: string;
@@ -37,10 +38,11 @@ export function ClientForm({
     lastName: '',
     email: '',
     mobile: '',
-    gender: '',
+    gender: 'prefer-not-to-say' as 'male' | 'female' | 'other' | 'prefer-not-to-say',
     dateOfBirth: '',
     idNumber: '',
-    country: '',
+    passport: '',
+    country: 'South Africa',
     address1: '',
     address2: '',
     suburb: '',
@@ -52,13 +54,21 @@ export function ClientForm({
     preferredMethodOfContact: 'email',
     myCentreId: '',
     referrerName: '',
-    status: 'active'
+    status: 'active',
+    emergencyContactName: '',
+    emergencyContactRelationship: '',
+    emergencyContactPhone: '',
+    medicalAidName: '',
+    medicalAidNumber: '',
+    medicalAidPlan: '',
+    allergies: '',
+    medicalConditions: '',
+    currentMedications: ''
   });
   
   // Photo handling
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
   
   // Centres
@@ -67,7 +77,7 @@ export function ClientForm({
   
   // Form validation
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [activeTab, setActiveTab] = useState<'personal' | 'contact' | 'additional'>('personal');
+  const [activeTab, setActiveTab] = useState<'personal' | 'contact' | 'additional' | 'medical'>('personal');
   
   // Initialize form data when client changes
   useEffect(() => {
@@ -87,10 +97,32 @@ export function ClientForm({
     const loadCentres = async () => {
       setLoadingCentres(true);
       try {
+        // Initialize centres in database if they don't exist
+        await initializeTreatmentCentres();
+        
+        // Fetch centres from database
         const centresData = await clientService.getCentres();
-        setCentres(centresData);
+        
+        if (centresData.length > 0) {
+          // Type assertion to match Centre type
+          setCentres(centresData as unknown as Centre[]);
+        } else {
+          // Fallback to constants if no centres in database
+          console.log('No centres found in database, using fallback from constants');
+          const fallbackCentres = TREATMENT_CENTRES.map(name => ({ 
+            id: name, 
+            name: name 
+          } as Centre));
+          setCentres(fallbackCentres);
+        }
       } catch (error) {
         console.error('Error loading centres:', error);
+        // Fallback to constants on error
+        const fallbackCentres = TREATMENT_CENTRES.map(name => ({ 
+          id: name, 
+          name: name 
+        } as Centre));
+        setCentres(fallbackCentres);
       } finally {
         setLoadingCentres(false);
       }
@@ -99,7 +131,7 @@ export function ClientForm({
     loadCentres();
   }, []);
   
-  // Handle form input changes
+  // Handle input change for standard HTML elements
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
@@ -107,12 +139,47 @@ export function ClientForm({
       [name]: value
     }));
     
-    // Clear error when field is edited
+    // Clear error for this field if it exists
     if (errors[name]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: ''
-      }));
+      setErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[name];
+        return newErrors;
+      });
+    }
+  };
+  
+  // Handle date input change
+  const handleDateChange = (name: string, value: string | Date | null) => {
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    
+    // Clear error for this field if it exists
+    if (errors[name]) {
+      setErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[name];
+        return newErrors;
+      });
+    }
+  };
+  
+  // Adapter for Select and TextArea components that expect (value: string) => void
+  const handleValueChange = (name: string) => (value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    
+    // Clear error for this field if it exists
+    if (errors[name]) {
+      setErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[name];
+        return newErrors;
+      });
     }
   };
   
@@ -153,7 +220,7 @@ export function ClientForm({
     if (client?.photoUrl) {
       setFormData(prev => ({
         ...prev,
-        photoUrl: null,
+        photoUrl: undefined,
         deletePhoto: true
       }));
     }
@@ -193,29 +260,16 @@ export function ClientForm({
   };
   
   // Handle form submission
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Validate form
     if (!validateForm()) {
-      // Find the first tab with errors and switch to it
-      const fieldsWithErrors = Object.keys(errors);
-      
-      if (fieldsWithErrors.some(field => ['firstName', 'lastName', 'email', 'mobile', 'gender', 'dateOfBirth', 'idNumber'].includes(field))) {
-        setActiveTab('personal');
-      } else if (fieldsWithErrors.some(field => ['country', 'address1', 'address2', 'suburb', 'cityTown', 'province', 'postalCode'].includes(field))) {
-        setActiveTab('contact');
-      } else {
-        setActiveTab('additional');
-      }
-      
       return;
     }
     
-    // Submit form data
-    onSubmit({
-      ...formData,
-      photoFile
-    });
+    // Submit form data with photoFile to the parent component
+    onSubmit(formData, photoFile);
   };
 
   return (
@@ -226,39 +280,34 @@ export function ClientForm({
       size="xl"
     >
       <form onSubmit={handleSubmit} className="p-6">
-        {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6">
-          <nav className="-mb-px flex space-x-8">
+        {/* Form Tabs */}
+        <div className="mb-6 border-b">
+          <nav className="-mb-px flex space-x-6">
             <button
               type="button"
+              className={`pb-3 px-1 ${activeTab === 'personal' ? 'border-b-2 border-primary-500 text-primary-600 font-medium' : 'text-gray-500 hover:text-gray-700'}`}
               onClick={() => setActiveTab('personal')}
-              className={`pb-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'personal'
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
             >
-              Personal Information
+              Personal Info
             </button>
             <button
               type="button"
+              className={`pb-3 px-1 ${activeTab === 'contact' ? 'border-b-2 border-primary-500 text-primary-600 font-medium' : 'text-gray-500 hover:text-gray-700'}`}
               onClick={() => setActiveTab('contact')}
-              className={`pb-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'contact'
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
             >
               Contact & Address
             </button>
             <button
               type="button"
+              className={`pb-3 px-1 ${activeTab === 'medical' ? 'border-b-2 border-primary-500 text-primary-600 font-medium' : 'text-gray-500 hover:text-gray-700'}`}
+              onClick={() => setActiveTab('medical')}
+            >
+              Medical Info
+            </button>
+            <button
+              type="button"
+              className={`pb-3 px-1 ${activeTab === 'additional' ? 'border-b-2 border-primary-500 text-primary-600 font-medium' : 'text-gray-500 hover:text-gray-700'}`}
               onClick={() => setActiveTab('additional')}
-              className={`pb-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'additional'
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
             >
               Additional Details
             </button>
@@ -326,8 +375,8 @@ export function ClientForm({
                 name="firstName"
                 value={formData.firstName || ''}
                 onChange={handleChange}
-                required
                 error={errors.firstName}
+                required
               />
               
               <Input
@@ -350,32 +399,6 @@ export function ClientForm({
               
               <Input
                 label="Mobile Number"
-                name="mobile"
-                value={formData.mobile || ''}
-                onChange={handleChange}
-                error={errors.mobile}
-              />
-              
-              <Select
-                label="Gender"
-                name="gender"
-                value={formData.gender || ''}
-                onChange={handleChange}
-                options={[
-                  { value: '', label: 'Select Gender' },
-                  { value: 'male', label: 'Male' },
-                  { value: 'female', label: 'Female' },
-                  { value: 'other', label: 'Other' },
-                  { value: 'prefer-not-to-say', label: 'Prefer not to say' }
-                ]}
-              />
-              
-              <Input
-                label="Date of Birth"
-                name="dateOfBirth"
-                type="date"
-                value={formData.dateOfBirth || ''}
-                onChange={handleChange}
               />
               
               <Input
@@ -389,7 +412,7 @@ export function ClientForm({
                 label="Status"
                 name="status"
                 value={formData.status || 'active'}
-                onChange={handleChange}
+                onChange={handleValueChange('status')}
                 options={[
                   { value: 'active', label: 'Active' },
                   { value: 'inactive', label: 'Inactive' },
@@ -458,7 +481,7 @@ export function ClientForm({
                 label="Preferred Method of Contact"
                 name="preferredMethodOfContact"
                 value={formData.preferredMethodOfContact || 'email'}
-                onChange={handleChange}
+                onChange={handleValueChange('preferredMethodOfContact')}
                 options={[
                   { value: 'email', label: 'Email' },
                   { value: 'phone', label: 'Phone' },
@@ -470,6 +493,94 @@ export function ClientForm({
           </div>
         )}
 
+        {/* Medical Information Tab */}
+        {activeTab === 'medical' && (
+          <div className="space-y-6">
+            <h3 className="text-lg font-medium text-gray-900">Emergency Contact</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Input
+                label="Emergency Contact Name"
+                name="emergencyContactName"
+                value={formData.emergencyContactName || ''}
+                onChange={handleChange}
+                placeholder="Full name"
+              />
+              
+              <Input
+                label="Emergency Contact Phone"
+                name="emergencyContactPhone"
+                value={formData.emergencyContactPhone || ''}
+                onChange={handleChange}
+                placeholder="Phone number"
+              />
+              
+              <Input
+                label="Relationship to Client"
+                name="emergencyContactRelationship"
+                value={formData.emergencyContactRelationship || ''}
+                onChange={handleChange}
+                placeholder="e.g. Spouse, Parent, Friend"
+              />
+            </div>
+            
+            <h3 className="text-lg font-medium text-gray-900 mt-8">Medical Information</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Input
+                label="Medical Aid Name"
+                name="medicalAidName"
+                value={formData.medicalAidName || ''}
+                onChange={handleChange}
+                placeholder="Medical aid provider"
+              />
+              
+              <Input
+                label="Medical Aid Number"
+                name="medicalAidNumber"
+                value={formData.medicalAidNumber || ''}
+                onChange={handleChange}
+                placeholder="Membership number"
+              />
+              
+              <Input
+                label="Medical Aid Plan"
+                name="medicalAidPlan"
+                value={formData.medicalAidPlan || ''}
+                onChange={handleChange}
+                placeholder="Plan type"
+              />
+            </div>
+            
+            <div className="grid grid-cols-1 gap-6">
+              <TextArea
+                label="Allergies"
+                name="allergies"
+                value={formData.allergies || ''}
+                onChange={handleValueChange('allergies')}
+                rows={2}
+                placeholder="List any allergies"
+              />
+              
+              <TextArea
+                label="Medical Conditions"
+                name="medicalConditions"
+                value={formData.medicalConditions || ''}
+                onChange={handleValueChange('medicalConditions')}
+                rows={2}
+                placeholder="List any medical conditions"
+              />
+              
+              <TextArea
+                label="Current Medications"
+                name="currentMedications"
+                value={formData.currentMedications || ''}
+                onChange={handleValueChange('currentMedications')}
+                rows={2}
+                placeholder="List any current medications"
+              />
+            </div>
+          </div>
+        )}
+        
         {/* Additional Details Tab */}
         {activeTab === 'additional' && (
           <div className="space-y-6">
@@ -478,7 +589,7 @@ export function ClientForm({
                 label="Marital Status"
                 name="maritalStatus"
                 value={formData.maritalStatus || ''}
-                onChange={handleChange}
+                onChange={handleValueChange('maritalStatus')}
                 options={[
                   { value: '', label: 'Select Marital Status' },
                   { value: 'single', label: 'Single' },
@@ -494,7 +605,7 @@ export function ClientForm({
                 label="Employment Status"
                 name="employmentStatus"
                 value={formData.employmentStatus || ''}
-                onChange={handleChange}
+                onChange={handleValueChange('employmentStatus')}
                 options={[
                   { value: '', label: 'Select Employment Status' },
                   { value: 'employed', label: 'Employed' },
@@ -506,20 +617,26 @@ export function ClientForm({
                 ]}
               />
               
-              <Select
-                label="Nearest Centre"
-                name="myCentreId"
-                value={formData.myCentreId || ''}
-                onChange={handleChange}
-                options={[
-                  { value: '', label: 'Select Centre' },
-                  ...centres.map(centre => ({
-                    value: centre.id,
-                    label: centre.name
-                  }))
-                ]}
-                disabled={loadingCentres}
-              />
+              {centres.length > 0 ? (
+                <Select
+                  label="Nearest Centre"
+                  name="myCentreId"
+                  value={formData.myCentreId || ''}
+                  onChange={handleValueChange('myCentreId')}
+                  options={[
+                    { value: '', label: 'Select Centre' },
+                    ...centres.map(centre => ({
+                      value: centre.id || '',
+                      label: centre.name
+                    }))
+                  ]}
+                  disabled={loadingCentres}
+                />
+              ) : (
+                <div className="p-4 border border-yellow-300 bg-yellow-50 rounded-md">
+                  <p className="text-yellow-700">No treatment centres are currently available.</p>
+                </div>
+              )}
               
               <Input
                 label="Referrer Name"
@@ -535,7 +652,7 @@ export function ClientForm({
                 label="Notes"
                 name="notes"
                 value={formData.notes || ''}
-                onChange={handleChange}
+                onChange={handleValueChange('notes')}
                 rows={4}
                 placeholder="Any additional notes about this client..."
               />

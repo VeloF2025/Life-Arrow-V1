@@ -144,7 +144,7 @@ export function ProfileCompletionForm({ onSuccess }: ProfileCompletionFormProps)
       2: ['address1', 'suburb', 'cityTown', 'province', 'postalCode'], // Address
       3: ['preferredMethodOfContact', 'maritalStatus', 'employmentStatus'], // Contact
       4: [], // Medical (all optional)
-      5: ['reasonForTransformation', 'whereDidYouHearAboutLifeArrow', 'myNearestTreatmentCentre'], // Service
+      5: ['reasonForTransformation', 'whereDidYouHearAboutLifeArrow', 'myNearestCentre'], // Service
       6: ['termsAndConditionsAgreed'], // Terms
     };
 
@@ -166,7 +166,7 @@ export function ProfileCompletionForm({ onSuccess }: ProfileCompletionFormProps)
       employmentStatus: 'Employment Status',
       reasonForTransformation: 'Reason for Transformation',
       whereDidYouHearAboutLifeArrow: 'How did you hear about Life Arrow',
-      myNearestTreatmentCentre: 'Nearest Treatment Centre',
+      myNearestCentre: 'Nearest Treatment Centre',
       termsAndConditionsAgreed: 'Terms and Conditions'
     };
 
@@ -256,6 +256,120 @@ export function ProfileCompletionForm({ onSuccess }: ProfileCompletionFormProps)
     }
   };
 
+  const handleStepClick = (stepId: number) => {
+    // Allow direct navigation to any step
+    // For steps ahead of current, validate the current step first
+    if (stepId <= currentStep) {
+      setCurrentStep(stepId);
+    } else {
+      // For future steps, validate current step first
+      if (validateCurrentStep()) {
+        // Jump directly to the clicked step
+        setCurrentStep(stepId);
+      }
+    }
+  };
+
+  const getCompletedSteps = () => {
+    const completedSteps: number[] = [];
+    
+    // Step 1: Personal Info
+    const step1Fields = ['name', 'surname', 'email', 'mobile', 'gender', 'country'];
+    const isStep1Complete = step1Fields.every(field => {
+      const value = formData[field as keyof ClientRegistrationData];
+      return value && (typeof value !== 'string' || value.trim() !== '');
+    });
+    
+    // Additional validation for ID/passport based on country
+    const isIdPassportValid = 
+      (formData.country === 'South Africa' && formData.idNumber) ||
+      (formData.country && formData.country !== 'South Africa' && formData.passport) ||
+      !formData.country; // Skip this check if country isn't selected yet
+    
+    if (isStep1Complete && isIdPassportValid) completedSteps.push(1);
+    
+    // Step 2: Address
+    const step2Fields = ['address1', 'suburb', 'cityTown', 'province', 'postalCode'];
+    const isStep2Complete = step2Fields.every(field => {
+      const value = formData[field as keyof ClientRegistrationData];
+      return value && (typeof value !== 'string' || value.trim() !== '');
+    });
+    
+    if (isStep2Complete) completedSteps.push(2);
+    
+    // Step 3: Contact & Personal
+    const step3Fields = ['preferredMethodOfContact', 'maritalStatus', 'employmentStatus'];
+    const isStep3Complete = step3Fields.every(field => {
+      const value = formData[field as keyof ClientRegistrationData];
+      return value && (typeof value !== 'string' || value.trim() !== '');
+    });
+    
+    if (isStep3Complete) completedSteps.push(3);
+    
+    // Step 4: Medical Info (all optional)
+    // Always consider step 4 complete if user has visited it
+    if (currentStep > 4) completedSteps.push(4);
+    
+    // Step 5: Service Info
+    const step5Fields = ['reasonForTransformation', 'whereDidYouHearAboutLifeArrow', 'myNearestCentre'];
+    let isStep5Complete = step5Fields.every(field => {
+      const value = formData[field as keyof ClientRegistrationData];
+      return value && (typeof value !== 'string' || value.trim() !== '');
+    });
+    
+    // Special case for referrer name
+    if (formData.whereDidYouHearAboutLifeArrow === 'Friend/Family Referral' && !formData.referrerName) {
+      isStep5Complete = false;
+    }
+    
+    if (isStep5Complete) completedSteps.push(5);
+    
+    // Step 6: Terms
+    if (formData.termsAndConditionsAgreed) completedSteps.push(6);
+    
+    return completedSteps;
+  };
+
+  const calculateProgress = () => {
+    // Calculate progress based on completed fields rather than current step
+    const totalRequiredFields = [
+      // Step 1: Personal Info
+      'name', 'surname', 'email', 'mobile', 'gender', 'country',
+      // Step 2: Address
+      'address1', 'suburb', 'cityTown', 'province', 'postalCode',
+      // Step 3: Contact & Personal
+      'preferredMethodOfContact', 'maritalStatus', 'employmentStatus',
+      // Step 4: Medical Info (all optional)
+      // Step 5: Service Info
+      'reasonForTransformation', 'whereDidYouHearAboutLifeArrow', 'myNearestCentre',
+      // Step 6: Terms
+      'termsAndConditionsAgreed'
+    ];
+    
+    // Count completed fields
+    let completedFields = 0;
+    totalRequiredFields.forEach(field => {
+      const value = formData[field as keyof ClientRegistrationData];
+      if (value && (typeof value !== 'string' || value.trim() !== '')) {
+        completedFields++;
+      }
+    });
+    
+    // Special case for South African ID or passport
+    if (formData.country === 'South Africa' && formData.idNumber) {
+      completedFields++;
+    } else if (formData.country && formData.country !== 'South Africa' && formData.passport) {
+      completedFields++;
+    }
+    
+    // Special case for referrer name
+    if (formData.whereDidYouHearAboutLifeArrow !== 'Friend/Family Referral' || formData.referrerName) {
+      completedFields++;
+    }
+    
+    return Math.round((completedFields / (totalRequiredFields.length + 2)) * 100);
+  };
+
   const handlePrevious = () => {
     setCurrentStep(prev => Math.max(prev - 1, 1));
   };
@@ -271,16 +385,16 @@ export function ProfileCompletionForm({ onSuccess }: ProfileCompletionFormProps)
         2: ['address1', 'suburb', 'cityTown', 'province', 'postalCode'], 
         3: ['preferredMethodOfContact', 'maritalStatus', 'employmentStatus'],
         4: [],
-        5: ['reasonForTransformation', 'whereDidYouHearAboutLifeArrow', 'myNearestTreatmentCentre', 'referrerName'],
+        5: ['reasonForTransformation', 'whereDidYouHearAboutLifeArrow', 'myNearestCentre', 'referrerName'],
         6: ['termsAndConditionsAgreed']
       };
 
-             for (const [step, fields] of Object.entries(stepValidations)) {
-         if (fields.some(fieldName => errors[fieldName])) {
-           setCurrentStep(Number(step));
-           break;
-         }
-       }
+      for (const [step, fields] of Object.entries(stepValidations)) {
+        if (fields.some(fieldName => errors[fieldName])) {
+          setCurrentStep(Number(step));
+          break;
+        }
+      }
 
       const errorFieldsCount = Object.keys(errors).length;
       const errorSummary = Object.entries(errors)
@@ -326,44 +440,6 @@ export function ProfileCompletionForm({ onSuccess }: ProfileCompletionFormProps)
     }
   };
 
-  const renderCurrentStep = () => {
-    const stepProps = {
-      data: formData,
-      errors,
-      onChange: handleFieldChange,
-    };
-
-    switch (currentStep) {
-      case 1:
-        return (
-          <PersonalInfoSection 
-            {...stepProps} 
-            photoPreview={photoPreview}
-            onPhotoSelect={handlePhotoSelect}
-            onRemovePhoto={removePhoto}
-            uploadingPhoto={uploadingPhoto}
-          />
-        );
-      case 2:
-        return <AddressInfoSection {...stepProps} />;
-      case 3:
-        return <ContactPersonalDetailsSection {...stepProps} />;
-      case 4:
-        return <MedicalInfoSection {...stepProps} />;
-      case 5:
-        return <ServiceInfoSection {...stepProps} />;
-      case 6:
-        return <TermsAdminSection {...stepProps} />;
-      default:
-        return null;
-    }
-  };
-
-  const calculateProgress = () => {
-    const totalSteps = FORM_STEPS.length;
-    return Math.round((currentStep / totalSteps) * 100);
-  };
-
   // Photo upload functions
   const handlePhotoSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -403,6 +479,39 @@ export function ProfileCompletionForm({ onSuccess }: ProfileCompletionFormProps)
     setPhotoPreview(null);
   };
 
+  const renderCurrentStep = () => {
+    const stepProps = {
+      data: formData,
+      errors,
+      onChange: handleFieldChange,
+    };
+
+    switch (currentStep) {
+      case 1:
+        return (
+          <PersonalInfoSection 
+            {...stepProps} 
+            photoPreview={photoPreview}
+            onPhotoSelect={handlePhotoSelect}
+            onRemovePhoto={removePhoto}
+            uploadingPhoto={uploadingPhoto}
+          />
+        );
+      case 2:
+        return <AddressInfoSection {...stepProps} />;
+      case 3:
+        return <ContactPersonalDetailsSection {...stepProps} />;
+      case 4:
+        return <MedicalInfoSection {...stepProps} />;
+      case 5:
+        return <ServiceInfoSection {...stepProps} />;
+      case 6:
+        return <TermsAdminSection {...stepProps} />;
+      default:
+        return null;
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -424,7 +533,9 @@ export function ProfileCompletionForm({ onSuccess }: ProfileCompletionFormProps)
         <ProgressIndicator 
           steps={FORM_STEPS}
           currentStep={currentStep}
+          completedSteps={getCompletedSteps()}
           className="mb-4"
+          onStepClick={handleStepClick}
         />
         <div className="text-center text-sm text-gray-600">
           Step {currentStep} of {FORM_STEPS.length} ({calculateProgress()}% complete)
@@ -492,4 +603,4 @@ export function ProfileCompletionForm({ onSuccess }: ProfileCompletionFormProps)
       </div>
     </div>
   );
-} 
+}

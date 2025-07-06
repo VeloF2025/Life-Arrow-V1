@@ -1,8 +1,11 @@
+import { useState, useEffect } from 'react';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { TextArea } from '../ui/TextArea';
 import { REFERRAL_SOURCES, TREATMENT_CENTRES } from '../../lib/constants';
 import type { ClientRegistrationData } from '../../lib/validation';
+import { clientService } from '../../features/clients/api/clientService';
+import { initializeTreatmentCentres } from '../../utils/initializeCentres';
 
 export interface ServiceInfoSectionProps {
   data: Partial<ClientRegistrationData>;
@@ -15,6 +18,38 @@ export function ServiceInfoSection({
   onChange,
   errors
 }: ServiceInfoSectionProps) {
+  const [centres, setCentres] = useState<{id?: string; name: string}[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  useEffect(() => {
+    const fetchCentres = async () => {
+      try {
+        // Initialize centres in database if they don't exist
+        await initializeTreatmentCentres();
+        
+        // Fetch centres from database
+        const centresData = await clientService.getCentres();
+        
+        if (centresData.length > 0) {
+          setCentres(centresData);
+        } else {
+          // Fallback to constants if no centres in database
+          console.log('No centres found in database, using fallback from constants');
+          const fallbackCentres = TREATMENT_CENTRES.map(name => ({ name, id: name }));
+          setCentres(fallbackCentres);
+        }
+      } catch (error) {
+        console.error('Error fetching treatment centres:', error);
+        // Fallback to constants on error
+        const fallbackCentres = TREATMENT_CENTRES.map(name => ({ name, id: name }));
+        setCentres(fallbackCentres);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchCentres();
+  }, []);
   return (
     <div className="space-y-6">
       {/* Section Header */}
@@ -78,16 +113,27 @@ export function ServiceInfoSection({
           Location Preference
         </h3>
         
-        <Select
-          name="myNearestCentre"
-          label="Nearest Centre"
-          value={data.myNearestCentre || ''}
-          onChange={(value) => onChange('myNearestCentre', value)}
-          options={TREATMENT_CENTRES}
-          required
-          error={errors.myNearestCentre}
-          placeholder="Select your preferred location"
-        />
+        {isLoading ? (
+          <div className="flex items-center justify-center py-4">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-500"></div>
+            <span className="ml-2 text-gray-600">Loading centres...</span>
+          </div>
+        ) : centres.length > 0 ? (
+          <Select
+            name="myNearestCentre"
+            label="Nearest Centre"
+            value={data.myNearestCentre || ''}
+            onChange={(value) => onChange('myNearestCentre', value)}
+            options={centres.map(centre => centre.name)}
+            required
+            error={errors.myNearestCentre}
+            placeholder="Select your preferred location"
+          />
+        ) : (
+          <div className="p-4 border border-yellow-300 bg-yellow-50 rounded-md">
+            <p className="text-yellow-700">No treatment centres are currently available. Please contact support.</p>
+          </div>
+        )}
         
         <p className="text-sm text-gray-600 mt-2">
           This will be your primary location for appointments and treatments

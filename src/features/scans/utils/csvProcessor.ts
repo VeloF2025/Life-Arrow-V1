@@ -32,8 +32,8 @@ export const processScanFile = async (file: File): Promise<{
         
         // Extract client identifier and scan date from filename
         // Format examples: 
-        // - "RIANA RAATH 2024-11-26T8_52^004_brv.txt" (name-based)
-        // - "7802035087081 2024-11-26T8_52^004_brv.txt" (ID-based)
+        // - "RIANA RAATH-2024-11-26T8.52^004_brv.txt" (name-based)
+        // - "7802035087081-2024-11-26T8.52^004_brv.txt" (ID-based)
         let clientIdentifier = '';
         let extractedScanDate = '';
         
@@ -44,14 +44,23 @@ export const processScanFile = async (file: File): Promise<{
             extractedScanDate = dateMatch[1];
           }
           
-          // Extract client identifier (everything before the date)
-          if (extractedScanDate) {
+          // Extract client identifier (everything before the date or hyphen)
+          // First, check if there's a hyphen before the date
+          const hyphenParts = fileIdentifier.split('-');
+          if (hyphenParts.length > 1) {
+            // Use the part before the first hyphen as the client identifier
+            clientIdentifier = hyphenParts[0].trim();
+            console.log('Extracted client identifier from before hyphen:', clientIdentifier);
+          } else if (extractedScanDate) {
+            // If no hyphen but we have a date, use everything before the date
             const parts = fileIdentifier.split(extractedScanDate)[0].trim();
             clientIdentifier = parts.replace(/\s+$/, ''); // Remove trailing spaces
+            console.log('Extracted client identifier from before date:', clientIdentifier);
           } else {
             // If no date found, take the first part before any T or _ or ^
             const parts = fileIdentifier.split(/[T_^]/);
             clientIdentifier = parts[0].trim();
+            console.log('Extracted client identifier from first part:', clientIdentifier);
           }
         }
         
@@ -162,7 +171,14 @@ export const processScanFile = async (file: File): Promise<{
  * @returns The extracted user ID or null if not found
  */
 export const extractUserIdFromFileIdentifier = (fileIdentifier: string): string | null => {
-  // This is a placeholder implementation - adjust based on your actual identifier format
+  // First check if there's a hyphen in the identifier
+  const hyphenParts = fileIdentifier.split('-');
+  if (hyphenParts.length > 1) {
+    // Use the part before the first hyphen as the client identifier
+    return hyphenParts[0].trim() || null;
+  }
+  
+  // If no hyphen, check for other patterns
   const userIdMatch = fileIdentifier.match(/user-(\w+)/i);
   return userIdMatch && userIdMatch[1] ? userIdMatch[1] : null;
 };

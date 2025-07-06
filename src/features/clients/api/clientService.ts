@@ -264,7 +264,8 @@ export const clientService = {
    */
   getCentres: async (): Promise<TreatmentCentre[]> => {
     try {
-      const centresRef = collection(db, 'treatmentCentres');
+      // Use the correct collection name 'centres' instead of 'treatmentCentres'
+      const centresRef = collection(db, 'centres');
       const q = query(centresRef, orderBy('name', 'asc'));
       const querySnapshot = await getDocs(q);
       
@@ -313,23 +314,32 @@ export const clientService = {
     try {
       if (!identifier) return null;
       
+      console.log(`Attempting to find client with identifier: ${identifier}`);
+      
+      // Clean up the identifier - remove any trailing characters that might be part of the filename
+      const cleanIdentifier = identifier.trim();
+      
       // First try to find by ID number (exact match)
-      if (/^\d{10,13}$/.test(identifier)) {
+      if (/^\d{10,13}$/.test(cleanIdentifier)) {
+        console.log(`Searching for client by ID number: ${cleanIdentifier}`);
         const clientsRef = collection(db, 'clients');
-        const q = query(clientsRef, where('idNumber', '==', identifier));
+        const q = query(clientsRef, where('idNumber', '==', cleanIdentifier));
         const querySnapshot = await getDocs(q);
         
         if (!querySnapshot.empty) {
           const doc = querySnapshot.docs[0];
-          return { id: doc.id, ...doc.data() } as Client;
+          const client = { id: doc.id, ...doc.data() } as Client;
+          console.log(`Found client by ID: ${client.firstName} ${client.lastName}`);
+          return client;
         }
       }
       
       // If not found by ID, try to find by name
       // Split the identifier into name parts
-      const nameParts = identifier.split(' ').filter(part => part.trim().length > 0);
+      const nameParts = cleanIdentifier.split(' ').filter(part => part.trim().length > 0);
       
       if (nameParts.length > 0) {
+        console.log(`Searching for client by name parts: ${nameParts.join(', ')}`);
         // Get all clients
         const clientsRef = collection(db, 'clients');
         const q = query(clientsRef);
@@ -347,9 +357,19 @@ export const clientService = {
         // Score each client based on name match
         const scoredClients = clients.map(client => {
           let score = 0;
-          const firstName = client.firstName || '';
-          const lastName = client.lastName || '';
-          const fullName = `${firstName} ${lastName}`.toLowerCase();
+          // Use type assertion to ensure TypeScript knows these properties exist
+          const typedClient = client as Client & { _score: number };
+          const firstName = ((typedClient.firstName as string) || '').toLowerCase();
+          const lastName = ((typedClient.lastName as string) || '').toLowerCase();
+          const fullName = `${firstName} ${lastName}`;
+          
+          // Check for exact match of full name
+          const identifierLower = cleanIdentifier.toLowerCase();
+          if (fullName === identifierLower) {
+            score += 10; // High score for exact full name match
+          } else if (`${lastName} ${firstName}` === identifierLower) {
+            score += 9; // High score for exact full name match in reverse order
+          }
           
           // Check each name part against the client's name
           nameParts.forEach(part => {
@@ -358,8 +378,12 @@ export const clientService = {
               score += 1;
               
               // Boost score for exact matches of first or last name
-              if (firstName.toLowerCase() === partLower || 
-                  lastName.toLowerCase() === partLower) {
+              if (firstName === partLower || lastName === partLower) {
+                score += 3;
+              }
+              
+              // Boost score for starts with matches
+              if (firstName.startsWith(partLower) || lastName.startsWith(partLower)) {
                 score += 2;
               }
             }
@@ -378,10 +402,14 @@ export const clientService = {
           const bestMatch = { ...matchedClients[0] };
           // Remove the score property using a type-safe approach
           const { _score, ...clientWithoutScore } = bestMatch;
-          return clientWithoutScore as Client;
+          // Type assertion to ensure TypeScript knows these properties exist
+          const typedClient = clientWithoutScore as Client;
+          console.log(`Found best matching client: ${typedClient.firstName || ''} ${typedClient.lastName || ''} (score: ${_score})`);
+          return typedClient;
         }
       }
       
+      console.log(`No matching client found for identifier: ${identifier}`);
       return null;
     } catch (error) {
       console.error('Error finding client by name or ID:', error);

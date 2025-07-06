@@ -42,10 +42,30 @@ import SystemLogsViewer from '../../components/admin/SystemLogsViewer';
 import { ProfileDropdown } from '../../components/ui/ProfileDropdown';
 import { UserProfileValidator } from '../../components/admin/UserProfileValidator';
 import { ScanManagement } from '../../features/scans/components/ScanManagement';
+import ScanAnalysis from '../../features/scans/components/ScanAnalysis';
 
 import Settings from '../admin/Settings';
 
 type AdminSection = 'overview' | 'clients' | 'appointments' | 'services' | 'centres' | 'staff' | 'scans' | 'videos' | 'wellness-plans' | 'reports' | 'settings' | 'audit' | 'site-health' | 'system-logs';
+
+const AccordionSection: React.FC<{ title: string; isOpen: boolean; onClick: () => void; children: React.ReactNode }> = ({ title, isOpen, onClick, children }) => (
+  <div className="border-b border-gray-200 last:border-b-0">
+    <h2>
+      <button
+        type="button"
+        className="flex items-center justify-between w-full p-5 font-medium text-left text-gray-700 hover:bg-gray-100 focus:outline-none"
+        onClick={onClick}
+        aria-expanded={isOpen}
+      >
+        <span>{title}</span>
+        <ChevronDownIcon className={`w-5 h-5 transition-transform ${isOpen ? 'transform rotate-180' : ''}`} />
+      </button>
+    </h2>
+    <div className={`${isOpen ? 'block' : 'hidden'} p-5 border-t border-gray-200`}>
+      {children}
+    </div>
+  </div>
+);
 
 export function Dashboard() {
   const { profile, loading } = useUserProfile();
@@ -89,6 +109,7 @@ export function Dashboard() {
   const [activeSection, setActiveSection] = useState<AdminSection>(initialSection);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [siteHealthTab, setSiteHealthTab] = useState<'audit' | 'profiles'>('audit');
+  const [openScanSection, setOpenScanSection] = useState<'upload' | 'analysis' | null>('upload');
 
   const isSuperAdmin = profile?.role === 'super-admin';
 
@@ -224,8 +245,36 @@ export function Dashboard() {
         return renderCentresManagement();
       case 'staff':
         return renderStaffManagement();
-      case 'scans':
-        return <ScanManagement />;
+      case 'scans': {
+        const handleScanToggle = (section: 'upload' | 'analysis') => {
+          setOpenScanSection(openScanSection === section ? null : section);
+        };
+
+        return (
+          <div className="page-container">
+            <div className="page-header">
+              <h1 className="page-title">Scan Management</h1>
+              <p className="page-subtitle">Upload, match, and analyze client scan data.</p>
+            </div>
+            <div className="bg-white shadow rounded-lg overflow-hidden">
+              <AccordionSection
+                title="Scan Upload & Match"
+                isOpen={openScanSection === 'upload'}
+                onClick={() => handleScanToggle('upload')}
+              >
+                <ScanManagement />
+              </AccordionSection>
+              <AccordionSection
+                title="Scan Analysis"
+                isOpen={openScanSection === 'analysis'}
+                onClick={() => handleScanToggle('analysis')}
+              >
+                <ScanAnalysis />
+              </AccordionSection>
+            </div>
+          </div>
+        );
+      }
       case 'site-health':
         return renderSiteHealth();
       case 'system-logs':

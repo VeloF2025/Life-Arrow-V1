@@ -79,18 +79,46 @@ export interface Client {
   lastName: string;
   email: string;
   phone?: string;
+  mobile?: string; // Added to match ClientRegistrationData
   address?: string;
+  address1?: string; // Added to match form fields
+  address2?: string; // Added to match form fields
+  suburb?: string; // Added to match form fields
   city?: string;
+  cityTown?: string; // Added to match form fields
   state?: string;
+  province?: string; // Added to match form fields
   postalCode?: string;
   country?: string;
   dateOfBirth?: string | Date;
   gender?: 'male' | 'female' | 'other' | 'prefer-not-to-say';
+  idNumber?: string; // Added to match ClientRegistrationData
+  passport?: string; // Added to match ClientRegistrationData
   occupation?: string;
   company?: string;
   notes?: string;
   photoUrl?: string;
   status: 'active' | 'inactive' | 'pending';
+  maritalStatus?: string; // Added to match form fields
+  employmentStatus?: string; // Added to match form fields
+  preferredMethodOfContact?: string; // Added to match form fields
+  myCentreId?: string; // Added to match form fields
+  referrerName?: string; // Added to match form fields
+  
+  // Emergency contact fields
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  emergencyContactRelationship?: string;
+  
+  // Medical information fields
+  medicalAidName?: string;
+  medicalAidNumber?: string;
+  medicalAidPlan?: string;
+  allergies?: string;
+  medicalConditions?: string;
+  currentMedications?: string;
+  
+  // Timestamps
   createdAt: Date;
   updatedAt?: Date;
   lastAppointment?: Date;
@@ -125,6 +153,50 @@ export interface ClientPreferences {
 }
 
 // Scan and Metrics Types
+
+export interface Scan {
+  id: string;
+  fileIdentifier: string;
+  clientId: string | null; // Renamed from userId for consistency
+  clientName?: string | null;
+  personName?: string | null;
+  originalFilename: string;
+  uploadSource: 'manual' | 'dropbox';
+  scanDate: any; // Can be string, Date, or Firestore Timestamp
+  scanTime: string;
+  status: 'matched' | 'unmatched' | 'processing' | 'error';
+  assignmentType?: 'auto' | 'manual';
+  rawDataJson: any;
+  createdAt: any; // Can be string, Date, or Firestore Timestamp
+  updatedAt: any; // Can be string, Date, or Firestore Timestamp
+}
+
+export interface ScanValue {
+  id?: string;
+  scanId: string;
+  pathId: number | string;
+  description: string;
+  value: 0 | 1;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface PathDefinition {
+  pathId: number;
+  description: string;
+  category: string;
+  createdAt: string;
+}
+
+export interface UnmatchedScan {
+  id?: string;
+  scanId: string;
+  staffNotes?: string;
+  assignedToStaffId?: string;
+  resolutionDate?: string;
+  createdAt: string;
+}
+
 export interface LifeArrowScan {
   id: string;
   clientId: string;

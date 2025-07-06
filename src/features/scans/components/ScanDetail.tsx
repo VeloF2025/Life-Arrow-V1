@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
 import { scanService } from '../api/scanService';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Scan } from '../types';
-import { UserPlusIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
+import { Timestamp } from 'firebase/firestore';
+import { UserPlusIcon } from '@heroicons/react/24/outline';
 import { ClientSelectionModal } from './ClientSelectionModal';
+import type { Scan } from '@/types';
 
 interface ScanDetailProps {
   scan: Scan;
@@ -13,113 +14,211 @@ interface ScanDetailProps {
 }
 
 export const ScanDetail: React.FC<ScanDetailProps> = ({ scan, onClose, onScanUpdate }) => {
-  // Extract client identifier from filename if available
   const [clientIdentifier, setClientIdentifier] = useState<string | null>(null);
-  
-  useEffect(() => {
-    // Extract client identifier from the filename
-    if (scan.fileIdentifier) {
-      const extractClientIdentifier = () => {
-        const fileId = scan.fileIdentifier;
-        // Try to extract date in format YYYY-MM-DD from the filename
-        const dateMatch = fileId.match(/(\d{4}-\d{2}-\d{2})/);
-        if (dateMatch && dateMatch[1]) {
-          const extractedDate = dateMatch[1];
-          const parts = fileId.split(extractedDate)[0].trim();
-          return parts.replace(/\s+$/, ''); // Remove trailing spaces
-        } else {
-          // If no date found, take the first part before any T or _ or ^
-          const parts = fileId.split(/[T_^]/);
-          return parts[0].trim();
-        }
-      };
-      
-      setClientIdentifier(extractClientIdentifier());
-    }
-  }, [scan.fileIdentifier]);
-  // Fetch scan values with formulas
-  const { data: scanData } = useQuery({
-    queryKey: ['scanValues', scan.id],
-    queryFn: () => scanService.getScanValuesWithFormulas(scan.id || ''),
-    enabled: !!scan.id
-  });
-
-  const formatDate = (dateValue: any) => {
-    try {
-      // Handle Firestore timestamp objects
-      if (dateValue && typeof dateValue === 'object' && dateValue.seconds) {
-        return format(new Date(dateValue.seconds * 1000), 'yyyy-MM-dd');
-      }
-      // Handle string dates
-      if (typeof dateValue === 'string') {
-        return format(new Date(dateValue), 'yyyy-MM-dd');
-      }
-      // Handle Date objects
-      if (dateValue instanceof Date) {
-        return format(dateValue, 'yyyy-MM-dd');
-      }
-      return 'Invalid Date';
-    } catch (error) {
-      return 'Invalid Date';
-    }
-  };
-
-  // Format time values if needed in the future
-
-  const formatCreatedAt = (dateValue: any) => {
-    try {
-      // Handle Firestore timestamp objects
-      if (dateValue && typeof dateValue === 'object' && dateValue.seconds) {
-        return format(new Date(dateValue.seconds * 1000), 'yyyy-MM-dd HH:mm:ss');
-      }
-      // Handle string dates
-      if (typeof dateValue === 'string') {
-        return format(new Date(dateValue), 'yyyy-MM-dd HH:mm:ss');
-      }
-      // Handle Date objects
-      if (dateValue instanceof Date) {
-        return format(dateValue, 'yyyy-MM-dd HH:mm:ss');
-      }
-      return 'Invalid Date';
-    } catch (error) {
-      return 'Invalid Date';
-    }
-  };
-  
-  // Format percentage values if needed in the future
-
-  const getStatusBadgeClass = (status: Scan['status']) => {
-    switch (status) {
-      case 'matched':
-        return 'bg-green-100 text-green-800';
-      case 'unmatched':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'processing':
-        return 'bg-blue-100 text-blue-800';
-      case 'error':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
+  const [extractedDate, setExtractedDate] = useState<string | null>(null);
   const [isClientSelectionModalOpen, setIsClientSelectionModalOpen] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const queryClient = useQueryClient();
 
+  const { data: scanData } = useQuery({
+    queryKey: [`scan-${scan.id}`],
+    queryFn: () => scanService.getScanData(scan.id),
+    enabled: !!scan.id,
+  });
+
+  useEffect(() => {
+    const extractInformationFromFile = (filename: string): { identifier: string | null; date: string | null } => {
+      if (!filename) return { identifier: null, date: null };
+
+      let identifier: string | null = null;
+      let date: string | null = null;
+
+      const commonFilePatterns = /^(data|scan|export|report|result|test|backup|delphidata|output)\.(csv|txt|json|xlsx)$/i;
+      if (commonFilePatterns.test(filename)) {
+        return { identifier: null, date: null };
+      }
+
+      const clientDatePattern = /([A-Z][A-Za-z]+\s+[A-Z][A-Za-z]+)\s+(\d{4}-\d{1,2}-\d{1,2})/;
+      const clientDateMatch = filename.match(clientDatePattern);
+      if (clientDateMatch && clientDateMatch[1]) {
+        identifier = clientDateMatch[1].trim();
+        const extractedDateStr = clientDateMatch[2];
+        const dateParts = extractedDateStr.split('-');
+        date = `${dateParts[0]}-${dateParts[1].padStart(2, '0')}-${dateParts[2].padStart(2, '0')}`;
+        return { identifier, date };
+      }
+
+      const dateMatch = filename.match(/(\d{4}-\d{1,2}-\d{1,2})/);
+      if (dateMatch && dateMatch[1]) {
+        const dateParts = dateMatch[1].split('-');
+        date = `${dateParts[0]}-${dateParts[1].padStart(2, '0')}-${dateParts[2].padStart(2, '0')}`;
+        const beforeDate = filename.split(dateMatch[1])[0].trim();
+        if (beforeDate && beforeDate.length > 0) {
+          identifier = beforeDate.replace(/\s+$/, '');
+        }
+      }
+
+      if (!identifier) {
+        const hyphenParts = filename.split('-');
+        if (hyphenParts.length > 1) {
+          const firstPart = hyphenParts[0].trim();
+          if (firstPart && firstPart.length > 0 && !/^\d+$/.test(firstPart)) {
+            identifier = firstPart;
+          }
+        }
+      }
+      
+      if (!identifier) {
+        const generalDateMatch = filename.match(/\d{2,4}[\s-_]\d{1,2}[\s-_]\d{1,2}/);
+        if (generalDateMatch) {
+            const beforeDate = filename.split(generalDateMatch[0])[0].trim();
+            if (beforeDate && beforeDate.length > 0) {
+                identifier = beforeDate.replace(/\s+$/, '');
+            }
+        }
+      }
+
+      if (!identifier) {
+        if (!/^\d+$/.test(filename) && filename.length > 0) {
+          const withoutExtension = filename.replace(/\.[^.]+$/, '');
+          identifier = withoutExtension;
+        }
+      }
+
+      return { identifier, date };
+    };
+
+    const extractClientInfoFromRawDataJson = (): { identifier: string | null; date: string | null } => {
+      if (!scan.rawDataJson) return { identifier: null, date: null };
+
+      try {
+        const rawData = typeof scan.rawDataJson === 'string' ? JSON.parse(scan.rawDataJson) : scan.rawDataJson;
+        
+        // Handle structured object format
+        if (rawData && typeof rawData === 'object' && !Array.isArray(rawData)) {
+          let identifier: string | null = null;
+          let date: string | null = null;
+          
+          if (rawData.Client?.Name) identifier = rawData.Client.Name;
+          else if (rawData.client?.name) identifier = rawData.client.name;
+          else if (rawData.ClientName) identifier = rawData.ClientName;
+          else if (rawData.clientName) identifier = rawData.clientName;
+
+          if (rawData.Date) {
+            const parsedDate = new Date(rawData.Date);
+            if (!isNaN(parsedDate.getTime())) {
+              date = format(parsedDate, 'yyyy-MM-dd');
+            }
+          }
+          // If we found something, return it.
+          if (identifier || date) {
+            return { identifier, date };
+          }
+        }
+        
+        // Handle array of arrays format (from screenshot)
+        if (Array.isArray(rawData) && rawData.length >= 3 && Array.isArray(rawData[2]) && typeof rawData[2][0] === 'string') {
+          const potentialClientInfoString = rawData[2][0];
+          // Reuse the filename parsing logic on this embedded string
+          return extractInformationFromFile(potentialClientInfoString);
+        }
+
+        return { identifier: null, date: null };
+      } catch (error) {
+        console.error('Error parsing rawDataJson for client info:', error);
+        return { identifier: null, date: null };
+      }
+    };
+
+    let finalIdentifier: string | null = null;
+    let finalDate: string | null = null;
+
+    // 1. Prioritize rawDataJson for both identifier and date
+    const rawDataInfo = extractClientInfoFromRawDataJson();
+    finalIdentifier = rawDataInfo.identifier;
+    finalDate = rawDataInfo.date;
+
+    // 2. Fallback to filename if info is missing
+    if (!finalIdentifier || !finalDate) {
+      const { identifier: filenameIdentifier, date: filenameDate } = extractInformationFromFile(scan.originalFilename || scan.fileIdentifier || '');
+      if (!finalIdentifier) {
+        finalIdentifier = filenameIdentifier;
+      }
+      if (!finalDate) {
+        finalDate = filenameDate;
+      }
+    }
+
+    // 3. Set the state with the determined values
+    setClientIdentifier(finalIdentifier || scan.clientName || 'Unknown');
+    setExtractedDate(finalDate);
+
+    // 4. Trigger update if necessary
+    if (onScanUpdate && (clientIdentifier !== finalIdentifier || extractedDate !== finalDate)) {
+      onScanUpdate({ ...scan, clientName: finalIdentifier || scan.clientName });
+    }
+
+  }, [scan, scan.rawDataJson, onScanUpdate, clientIdentifier, extractedDate]);
+
+  const formatDate = (dateValue: any) => {
+    if (extractedDate) return extractedDate;
+
+    if (!dateValue) return 'N/A';
+    try {
+      if (dateValue instanceof Timestamp) {
+        return format(dateValue.toDate(), 'yyyy-MM-dd');
+      } else if (dateValue instanceof Date) {
+        return format(dateValue, 'yyyy-MM-dd');
+      } else if (typeof dateValue === 'string') {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+          return dateValue;
+        }
+        const date = new Date(dateValue);
+        if (!isNaN(date.getTime())) {
+          return format(date, 'yyyy-MM-dd');
+        }
+      }
+      return String(dateValue);
+    } catch (e) {
+      return 'Invalid Date';
+    }
+  };
+  
+  const formatCreatedAt = (dateValue: any) => {
+    if (!dateValue) return 'N/A';
+    try {
+      if (dateValue instanceof Timestamp) {
+        return format(dateValue.toDate(), 'yyyy-MM-dd HH:mm');
+      } else if (dateValue instanceof Date) {
+        return format(dateValue, 'yyyy-MM-dd HH:mm');
+      } else if (typeof dateValue === 'string') {
+        const date = new Date(dateValue);
+        return format(date, 'yyyy-MM-dd HH:mm');
+      }
+      return String(dateValue);
+    } catch (e) {
+      return 'Invalid Date';
+    }
+  };
+  
+  const getStatusBadgeClass = (status: Scan['status']) => {
+    switch (status) {
+      case 'matched': return 'bg-green-100 text-green-800';
+      case 'unmatched': return 'bg-yellow-100 text-yellow-800';
+      case 'processing': return 'bg-blue-100 text-blue-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+  
   const handleAssignToClient = async (clientId: string) => {
     if (!scan?.id) return;
-    
     setIsAssigning(true);
     try {
       await scanService.assignScanToClient(scan.id, clientId);
-      // Update the scan in the UI
-      const updatedScan = { ...scan, userId: clientId, status: 'matched' as const };
+      queryClient.invalidateQueries({ queryKey: [`scan-${scan.id}`] });
       if (onScanUpdate) {
-        onScanUpdate(updatedScan);
+        onScanUpdate({ ...scan, clientId, status: 'matched' });
       }
-      // Invalidate queries to refresh the scans list
-      queryClient.invalidateQueries({ queryKey: ['scans'] });
       setIsClientSelectionModalOpen(false);
     } catch (error) {
       console.error('Error assigning scan to client:', error);
@@ -127,284 +226,181 @@ export const ScanDetail: React.FC<ScanDetailProps> = ({ scan, onClose, onScanUpd
       setIsAssigning(false);
     }
   };
+  
+  const processedScanData = useMemo(() => {
+    // Priority 1: Data from useQuery (e.g., from a separate collection)
+    if (scanData?.rawValues && Array.isArray(scanData.rawValues) && scanData.rawValues.length > 0) {
+      return scanData.rawValues;
+    }
+
+    // Priority 2: Data from the scan object's rawDataJson
+    if (scan.rawDataJson) {
+      try {
+        const data = typeof scan.rawDataJson === 'string' 
+          ? JSON.parse(scan.rawDataJson) 
+          : scan.rawDataJson;
+
+        if (!data) return [];
+
+        // Case A: data.pathData exists (structured object)
+        if (data.pathData && Array.isArray(data.pathData) && data.pathData.length > 0) {
+          return data.pathData;
+        }
+
+        // Case B: Reconstruct from separate arrays (pathIds, descriptions, values)
+        if (data.pathIds && data.values && Array.isArray(data.pathIds) && Array.isArray(data.values)) {
+          const descriptions = data.descriptions || [];
+          return data.pathIds.map((pathId: any, index: number) => ({
+            pathId,
+            description: descriptions[index] || '',
+            value: data.values[index],
+          }));
+        }
+        
+        // Case C: Data is an array of arrays (CSV-like structure)
+        // Assumes format: [ [headers...], [descriptions...], [values...] ]
+        if (Array.isArray(data) && data.length >= 3) {
+            const pathIds = data[0].slice(1).map((id: string) => Number(id));
+            const descriptions = data[1].slice(1);
+            const values = data[2].slice(1).map((val: string) => (val ? (Number(val) > 0 ? 1 : 0) : 0));
+            
+            return pathIds.map((pathId: number, index: number) => ({
+              pathId,
+              description: descriptions[index] || '',
+              value: values[index]
+            }));
+        }
+
+      } catch (e) {
+        console.error("Error parsing or processing rawDataJson:", e);
+      }
+    }
+
+    // Return empty array if no data is found or processed
+    return [];
+  }, [scanData, scan.rawDataJson]);
 
   return (
     <div className="bg-white shadow overflow-hidden sm:rounded-lg">
       <div className="px-4 py-5 sm:px-6 flex justify-between items-center">
         <div>
-          <h3 className="text-lg leading-6 font-medium text-gray-900">
-            Scan Details
-          </h3>
-          <p className="mt-1 max-w-2xl text-sm text-gray-500">
-            {scan.originalFilename}
-          </p>
+          <h3 className="text-lg leading-6 font-medium text-gray-900">Scan Details</h3>
+          <p className="mt-1 max-w-2xl text-sm text-gray-500">Details for scan ID: {scan.id}</p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex items-center p-1 border border-transparent rounded-full shadow-sm text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-        >
-          <svg
-            className="h-5 w-5"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M6 18L18 6M6 6l12 12"
-            />
-          </svg>
-        </button>
+        {onClose && (
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
       <div className="border-t border-gray-200 px-4 py-5 sm:p-0">
-        <dl>
-          <div className="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-            <dt className="text-sm font-medium text-gray-500">File Identifier</dt>
-            <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-              {scan.fileIdentifier || 'Not available'}
-            </dd>
-          </div>
-          
-          {clientIdentifier && (
-            <div className="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-              <dt className="text-sm font-medium text-gray-500">
-                <div className="flex items-center">
-                  <span>Extracted Client Identifier</span>
-                  <InformationCircleIcon className="ml-1 h-4 w-4 text-gray-400" title="Automatically extracted from filename" />
-                </div>
-              </dt>
-              <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-                <div className="flex items-center">
-                  <span className="font-medium">{clientIdentifier}</span>
-                  {scan.status === 'matched' && (
-                    <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      Auto-matched
-                    </span>
-                  )}
-                </div>
-              </dd>
-            </div>
-          )}
-          <div className="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-            <dt className="text-sm font-medium text-gray-500">User ID</dt>
-            <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2 flex items-center justify-between">
-              <span>{scan.userId || 'Not matched'}</span>
-              {(!scan.userId || scan.status === 'unmatched') && (
-                <button
-                  type="button"
-                  onClick={() => setIsClientSelectionModalOpen(true)}
-                  className="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                  disabled={isAssigning}
+        <dl className="sm:divide-y sm:divide-gray-200">
+          {/* Client Name / Identifier */}
+          <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+            <dt className="text-sm font-medium text-gray-500">Client</dt>
+            <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2 flex items-center">
+              <span>{clientIdentifier || 'Unassigned'}</span>
+              {!scan.clientId && (
+                <button 
+                  onClick={() => setIsClientSelectionModalOpen(true)} 
+                  className="ml-4 p-1 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  title="Assign to client"
                 >
-                  {isAssigning ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Assigning...
-                    </>
-                  ) : (
-                    <>
-                      <UserPlusIcon className="-ml-0.5 mr-1 h-4 w-4" aria-hidden="true" />
-                      Assign to Client
-                    </>
-                  )}
+                  <UserPlusIcon className="h-5 w-5" />
                 </button>
               )}
             </dd>
           </div>
+
+          {/* Scan Date */}
           <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
             <dt className="text-sm font-medium text-gray-500">Scan Date</dt>
             <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-              {formatDate(scan.scanDate)} {typeof scan.scanTime === 'string' ? scan.scanTime : formatDate(scan.scanTime)}
+              {formatDate(scan.scanDate)}
+              {extractedDate && (
+                <span className="ml-2 text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                  Extracted
+                </span>
+              )}
             </dd>
           </div>
-          <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-            <dt className="text-sm font-medium text-gray-500">Upload Source</dt>
-            <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-              {scan.uploadSource}
-            </dd>
-          </div>
+
+          {/* Scan Time */}
+          {scan.scanTime && (
+            <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+              <dt className="text-sm font-medium text-gray-500">Scan Time</dt>
+              <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">{scan.scanTime}</dd>
+            </div>
+          )}
+          
+          {/* Status */}
           <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
             <dt className="text-sm font-medium text-gray-500">Status</dt>
-            <dd className="mt-1 sm:mt-0 sm:col-span-2">
-              <div className="flex items-center">
-                <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClass(
-                    scan.status
-                  )}`}
-                >
-                  {scan.status}
-                </span>
-                
-                {scan.status === 'unmatched' && clientIdentifier && (
-                  <span className="ml-3 text-xs text-gray-500">
-                    No automatic match found for "{clientIdentifier}"
-                  </span>
-                )}
-              </div>
+            <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClass(scan.status)}`}>
+                {scan.status || 'unknown'}
+              </span>
             </dd>
           </div>
+          
+          {/* Created At */}
           <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-            <dt className="text-sm font-medium text-gray-500">Created At</dt>
-            <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-              {formatCreatedAt(scan.createdAt)}
-            </dd>
+            <dt className="text-sm font-medium text-gray-500">Created</dt>
+            <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">{formatCreatedAt(scan.createdAt)}</dd>
           </div>
+          
+          {/* File Identifier */}
           <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-            <dt className="text-sm font-medium text-gray-500">Updated At</dt>
-            <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-              {formatCreatedAt(scan.updatedAt)}
-            </dd>
+            <dt className="text-sm font-medium text-gray-500">File Identifier</dt>
+            <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">{scan.fileIdentifier || 'N/A'}</dd>
           </div>
         </dl>
       </div>
-
+      
       {/* Scan Data Table */}
       <div className="px-4 py-5 sm:px-6">
-        <h3 className="text-lg leading-6 font-medium text-gray-900">
-          Scan Data
-        </h3>
-        <div className="mt-4 max-h-96 overflow-y-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50 sticky top-0">
-              <tr>
-                <th
-                  scope="col"
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                >
-                  Path ID
-                </th>
-                <th
-                  scope="col"
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                >
-                  Description
-                </th>
-                <th
-                  scope="col"
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                >
-                  Value
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {(() => {
-                // Get scan data from either the separate collection or the raw JSON
-                const getScanData = () => {
-                  // If we have data from the separate collection, use that
-                  if (scanData?.rawValues && scanData.rawValues.length > 0) {
-                    return {
-                      pathData: scanData.rawValues,
-                      derivedValues: scanData.derivedValues || {},
-                      fromSeparateCollection: true
-                    };
-                  }
-                  
-                  // Otherwise fall back to the raw data in the scan document
-                  if (!scan.rawDataJson) return { pathIds: [], descriptions: [], values: [], pathData: [], derivedValues: {} };
-                  
-                  try {
-                    // Handle case where rawDataJson is a string
-                    if (typeof scan.rawDataJson === 'string') {
-                      return JSON.parse(scan.rawDataJson);
-                    }
-                    
-                    // Handle case where rawDataJson is already an object
-                    return scan.rawDataJson;
-                  } catch (err) {
-                    console.error('Error parsing scan data:', err);
-                    return { pathIds: [], descriptions: [], values: [], pathData: [], derivedValues: {} };
-                  }
-                };
-                
-                const parsedData = getScanData();
-                const hasPathData = parsedData.pathData && parsedData.pathData.length > 0;
-                const hasArrayData = parsedData.pathIds && parsedData.values && parsedData.pathIds.length > 0;
-                
-                let pathData: any[] = [];
-                try {
-                  if (hasPathData) {
-                    pathData = parsedData.pathData;
-                  } else if (hasArrayData) {
-                    // Reconstruct pathData from separate arrays
-                    const { pathIds, descriptions, values } = parsedData;
-                    pathData = pathIds.map((pathId: number, index: number) => ({
-                      pathId,
-                      description: descriptions[index] || '',
-                      value: values[index]
-                    }));
-                  } else if (Array.isArray(parsedData) && parsedData.length > 0) {
-                    // Assume first row is headers, second row is descriptions, third+ rows are data
-                    if (parsedData.length >= 3) {
-                      const pathIds = parsedData[0].slice(1).map((id: string) => Number(id));
-                      const descriptions = parsedData[1].slice(1);
-                      const values = parsedData[2].slice(1).map((val: string) => Number(val) > 0 ? 1 : 0);
-                      
-                      pathData = pathIds.map((pathId: number, index: number) => ({
-                        pathId,
-                        description: descriptions[index] || '',
-                        value: values[index]
-                      }));
-                    }
-                  } 
-                  // Handle case where rawDataJson is already an object
-                  else if (typeof scan.rawDataJson === 'object' && scan.rawDataJson !== null) {
-                    if (Array.isArray(scan.rawDataJson.pathData)) {
-                      pathData = scan.rawDataJson.pathData;
-                    } else if (scan.rawDataJson.pathIds && scan.rawDataJson.descriptions && scan.rawDataJson.values) {
-                      // Reconstruct pathData from separate arrays
-                      const { pathIds, descriptions, values } = scan.rawDataJson;
-                      pathData = pathIds.map((pathId: number, index: number) => ({
-                        pathId,
-                        description: descriptions[index] || '',
-                        value: values[index]
-                      }));
-                    }
-                  }
-                } catch (err) {
-                  console.error('Error processing scan data:', err);
-                }
-                
-                if (pathData && pathData.length > 0) {
-                  return pathData.map((item: any, index: number) => (
-                    <tr key={index} className={item.value === 1 ? 'bg-green-50' : ''}>
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        {item.pathId}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500">
-                        {item.description}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500">
-                        {item.value}
-                      </td>
-                    </tr>
-                  ));
-                } else {
-                  return (
+        <h3 className="text-lg leading-6 font-medium text-gray-900">Scan Data</h3>
+        <div className="mt-4 flex flex-col">
+          <div className="-my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
+            <div className="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
+              <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
                     <tr>
-                      <td colSpan={3} className="px-6 py-4 text-sm text-center text-gray-500">
-                        No scan data available or data is in an unexpected format.
-                      </td>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Path ID</th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Value</th>
                     </tr>
-                  );
-                }
-              })()}
-            </tbody>
-          </table>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {processedScanData.length > 0 ? (
+                      processedScanData.map((item: any, index: number) => (
+                        <tr key={index}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.pathId || 'N/A'}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.description || 'N/A'}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.value === 1 ? 1 : 0}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={3} className="px-6 py-4 text-center text-sm text-gray-500">No scan data available.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
+
       <ClientSelectionModal
         isOpen={isClientSelectionModalOpen}
         onClose={() => setIsClientSelectionModalOpen(false)}
         onClientSelected={handleAssignToClient}
+        isLoading={isAssigning}
       />
     </div>
   );

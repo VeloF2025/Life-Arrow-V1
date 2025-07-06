@@ -1,6 +1,6 @@
 import { collection, addDoc, getDocs, getDoc, doc, updateDoc, query, where, orderBy, Timestamp, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
-import type { Scan, ScanValue } from '../types';
+import type { Scan, ScanValue } from '@/types';
 
 const SCANS_COLLECTION = 'scans';
 const SCAN_VALUES_COLLECTION = 'scan_values';
@@ -14,7 +14,7 @@ export const scanService = {
       
       // Update the scan with the client ID and change status to matched
       await updateDoc(scanRef, {
-        userId: clientId,
+        clientId: clientId,
         status: 'matched',
         updatedAt: Timestamp.now().toDate().toISOString()
       });
@@ -41,6 +41,25 @@ export const scanService = {
     try {
       const timestamp = Timestamp.now();
       const timestampStr = timestamp.toDate().toISOString();
+      
+      // If we have a client identifier but no clientId, try to find a matching client
+      if (clientIdentifier && !scanData.clientId) {
+        console.log(`Attempting to match scan to client with identifier: ${clientIdentifier}`);
+        try {
+          // Import dynamically to avoid circular dependencies
+          const { clientService } = await import('../../clients/api/clientService');
+          const matchedClient = await clientService.findByNameOrId(clientIdentifier);
+          
+          if (matchedClient && matchedClient.id) {
+            console.log(`Successfully matched scan to client: ${matchedClient.firstName || ''} ${matchedClient.lastName || ''} (${matchedClient.id})`);
+            scanData.clientId = matchedClient.id;
+            scanData.status = 'matched';
+            scanData.personName = `${matchedClient.firstName || ''} ${matchedClient.lastName || ''}`.trim() || null;
+          }
+        } catch (error) {
+          console.error('Error auto-matching client:', error);
+        }
+      }
       
       // Prepare the main scan document
       const scanWithTimestamps = {
@@ -172,14 +191,10 @@ export const scanService = {
     }
   },
 
-  // Get scans by user ID
-  async getScansByUserId(userId: string): Promise<Scan[]> {
+  // Get scans by client ID
+  async getScansByClientId(clientId: string): Promise<Scan[]> {
     try {
-      const q = query(
-        collection(db, SCANS_COLLECTION),
-        where('userId', '==', userId),
-        orderBy('createdAt', 'desc')
-      );
+      const q = query(collection(db, SCANS_COLLECTION), where('clientId', '==', clientId), orderBy('scanDate', 'desc'));
       
       const querySnapshot = await getDocs(q);
       return querySnapshot.docs.map(doc => ({
